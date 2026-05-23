@@ -64,7 +64,7 @@ Set `PATCH_SENTINEL_PROVIDER` to enable this mode:
 | `TEST_MODE` | No | `"true"` or `"false"` (default: false) |
 | `MIN_SEVERITY_SCORE` | No | Number 0–10 |
 | `MONITORED_SOURCES` | No | Newline- or comma-separated globs |
-| `LAST_SUCCESS_DATE` | No | YYYY-MM-DD; skips run if matches today (dedup) |
+
 
 ## Usage
 
@@ -95,11 +95,10 @@ Copy it to your repo and set the following in your GitHub repository:
 - `TEST_MODE` — `"true"` to dry-run
 - `MIN_SEVERITY_SCORE` — e.g. `6.0`
 - `MONITORED_SOURCES` — newline-separated patterns
-- `LAST_SUCCESS_DATE` — set automatically by the workflow
 
 The workflow:
 - Runs twice daily (08:00 and 20:00 UTC)
-- Installs PyYAML, runs Patch Sentinel, then updates `LAST_SUCCESS_DATE` if successful
+- Installs PyYAML, runs Patch Sentinel, then commits `last_run.txt` if successful
 - Includes a **keepalive job** to prevent GitHub from disabling the scheduled workflow after 60 days of inactivity
 
 ## How it works
@@ -115,5 +114,5 @@ The workflow:
 
 - The CVE archive drops at 01:00 UTC. Runs before that time will fail — the tool does not fall back to the previous day. (The default schedule runs at 08:00 UTC, well after the release.)
 - When `containers.cna.affected[].product` is empty, matching falls back against the description text.
-- `LAST_SUCCESS_DATE` dedup: after a successful run, GitHub Actions sets this variable via `gh variable set`. If the next run sees today's date already set, it exits immediately without downloading.
+- **`last_run.txt` dedup**: after a successful run, the script writes today's date to `last_run.txt` and the workflow commits it. If the next run sees today's date in that file, it exits immediately without downloading.
 - `.cache/` is gitignored; cached archive files are reused across runs. Stale files are cleared before each fresh download.

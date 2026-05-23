@@ -285,8 +285,12 @@ def main():
 	today = (datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 	#today = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
 
-	last_success = os.environ.get("LAST_SUCCESS_DATE", "")
-	if last_success == today:
+	try:
+		with open("last_run.txt") as f:
+			last_run = f.read().strip()
+	except FileNotFoundError:
+		last_run = ""
+	if last_run == today:
 		print(f"⏭️ Already ran successfully on {today}, skipping.")
 		return
 
@@ -295,6 +299,9 @@ def main():
 		sys.exit(f"❌ CVE archive not available for {today}. Try again later.")
 
 	process_archive(config, archive_path)
+
+	with open("last_run.txt", "w") as f:
+		f.write(today + "\n")
 	
 	print("🏁 Run complete.")
 
