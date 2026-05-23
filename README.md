@@ -98,7 +98,7 @@ This repository includes a pre-built workflow at `.github/workflows/schedule.yml
 The workflow:
 - Runs twice daily (08:00 and 20:00 UTC)
 - Installs PyYAML, runs Patch Sentinel, then commits `last_run.txt` if successful
-- Includes a **keepalive job** to prevent GitHub from disabling the scheduled workflow after 60 days of inactivity
+
 
 ## How it works
 
