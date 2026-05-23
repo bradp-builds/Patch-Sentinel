@@ -47,11 +47,7 @@ def _load_config_from_env():
 
 	sources_raw = os.environ.get("MONITORED_SOURCES", "")
 	for line in sources_raw.splitlines():
-		line = line.strip()
-		if line:
-			config["monitored_sources"].append(line)
-	if not config["monitored_sources"] and "," in sources_raw:
-		for part in sources_raw.split(","):
+		for part in line.split(","):
 			part = part.strip()
 			if part:
 				config["monitored_sources"].append(part)
@@ -177,8 +173,8 @@ def send_notification(config, cve_id, product, severity, desc):
 		urllib.request.urlopen(req, timeout=30)
 		print(f"✅ Notification sent for {cve_id} via {provider.capitalize()}")
 		print()
-	except Exception as e:
-		print(f"❌ Failed to send {provider} notification for {cve_id}: {e}", file=sys.stderr)
+	except Exception:
+		print(f"❌ Failed to send {provider} notification for {cve_id}: HTTP error", file=sys.stderr)
 		print()
 
 # --- Core Extraction & Parsing Logic ---
@@ -240,10 +236,14 @@ def process_archive(config, archive_path):
 					
 					desc_text = descriptions[0].get("value", "No description provided") if descriptions else "No description provided"
 					
-					# Extract severity (look for CVSS v3.1 or v3.0 score)
+					# Extract severity (look for CVSS v4.0, v3.1, or v3.0 score)
 					base_score = None
 					severity = "Unknown"
 					for metric in metrics:
+						if "cvssV4_0" in metric:
+							base_score = metric['cvssV4_0'].get('baseScore')
+							severity = f"{metric['cvssV4_0'].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
+							break
 						if "cvssV3_1" in metric:
 							base_score = metric['cvssV3_1'].get('baseScore')
 							severity = f"{metric['cvssV3_1'].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
