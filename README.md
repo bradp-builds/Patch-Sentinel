@@ -10,19 +10,17 @@ Monitor CVE publications for your software stack and get alerted via Discord or 
 - **Rich notifications** — Formatted alerts via Discord embeds or Slack blocks.
 - **Dual config modes** — YAML file for local use, environment variables for CI (GitHub Actions).
 - **Test mode** — Print alerts to stdout instead of firing webhooks.
-- **Lightweight** — Single Python file, one dependency (`PyYAML`).
+- **Lightweight** — Single Python file, no pip dependencies.
 
 ## Prerequisites
 
 - Python 3.x
-- `pip install PyYAML`
 
 ## Installation
 
 ```bash
 git clone https://github.com/YOUR_USER/patch-sentinel.git
 cd patch-sentinel
-pip install PyYAML
 ```
 
 ## Configuration
@@ -97,7 +95,7 @@ This repository includes a pre-built workflow at `.github/workflows/schedule.yml
 
 The workflow:
 - Runs twice daily (08:00 and 20:00 UTC)
-- Installs PyYAML, runs Patch Sentinel, then commits `last_run.txt` if successful
+- Runs Patch Sentinel, then commits `last_run.txt` if successful
 
 
 ## How it works
