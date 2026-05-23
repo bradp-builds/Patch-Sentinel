@@ -59,7 +59,7 @@ def load_config(config_path=None):
 		return _load_config_from_env()
 
 	if config_path is None:
-		config_path = os.environ.get("PATCH_SENTINEL_CONFIG", "config.yaml")
+		config_path = os.environ.get("PATCH_SENTINEL_CONFIG") or "config.yaml"
 	try:
 		with open(config_path, "r") as f:
 			config = yaml.safe_load(f)
