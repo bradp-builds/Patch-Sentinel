@@ -305,7 +305,7 @@ def main():
 			last_run = f.read().strip()
 	except FileNotFoundError:
 		last_run = ""
-	if last_run == today:
+	if last_run == today and not config.get("test_mode", False):
 		print(f"⏭️ Already ran successfully on {today}, skipping.")
 		return
 
@@ -315,8 +315,9 @@ def main():
 
 	process_archive(config, archive_path)
 
-	with open("last_run.txt", "w") as f:
-		f.write(today + "\n")
+	if not config.get("test_mode", False):
+		with open("last_run.txt", "w") as f:
+			f.write(today + "\n")
 	
 	print("🏁 Run complete.")
 
