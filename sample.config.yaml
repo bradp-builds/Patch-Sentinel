@@ -33,9 +33,11 @@ min_severity_score: 6.0
 # Supports standard wildcard globbing (e.g., nginx*)
 monitored_sources:
   - "Linux"
-  - "NGINX Open Source"
-  - "NGINX NJS"
   - "SystemD"
-  - "OpenSSH"
   - "OpenSSL"
+  - "OpenSSH"
+  - "NGINX Open Source"
   - "PHP"
+  - "MariaDB"
+  - "Chrome"
+  - "Firefox"
