@@ -64,6 +64,7 @@ Set `PATCH_SENTINEL_PROVIDER` to enable this mode:
 | `TEST_MODE` | No | `"true"` or `"false"` (default: false) |
 | `MIN_SEVERITY_SCORE` | No | Number 0–10 |
 | `MONITORED_SOURCES` | No | Newline- or comma-separated globs |
+| `PATCH_SENTINEL_CONFIG` | No | Config file path (default: `config.yaml`). Ignored when `--config` is given. |
 
 
 ## Usage
@@ -82,9 +83,7 @@ PATCH_SENTINEL_PROVIDER=discord \
 
 ## GitHub Actions
 
-This repository includes a pre-built workflow at `github-actions.yml` (repo root, not under `.github/workflows/`).
-
-Copy it to your repo and set the following in your GitHub repository:
+This repository includes a pre-built workflow at `.github/workflows/schedule.yml`. Copy it to your repo and set the following in your GitHub repository:
 
 **Secrets** (repo → Settings → Secrets and variables → Actions):
 - `DISCORD_WEBHOOK_URL`
