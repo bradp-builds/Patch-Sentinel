@@ -32,5 +32,10 @@ min_severity_score: 6.0
 # Upstream Packages to Monitor
 # Supports standard wildcard globbing (e.g., nginx*)
 monitored_sources:
-  - "linux"
-  - "nginx*"
+  - "Linux"
+  - "NGINX Open Source"
+  - "NGINX NJS"
+  - "SystemD"
+  - "OpenSSH"
+  - "OpenSSL"
+  - "PHP"
