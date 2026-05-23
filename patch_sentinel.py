@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import time
 import yaml
 import urllib.request
 import urllib.error
@@ -106,16 +107,30 @@ def fetch_cve_archive(target_date):
 
 	url = f"https://github.com/CVEProject/cvelistV5/releases/download/cve_{target_date}_0100Z/{filename}"
 	print(f"🌐 Downloading target archive: {url}")
-	
-	try:
-		req = urllib.request.Request(url, headers={'User-Agent': 'PatchSentinel/1.0'})
-		with urllib.request.urlopen(req, timeout=30) as response, open(cache_path, 'wb') as out_file:
-			out_file.write(response.read())
-		return cache_path
-	except urllib.error.HTTPError as e:
-		if e.code == 404:
-			return None
-		sys.exit(f"❌ Network error downloading archive: {e}")
+
+	max_retries = 3
+	for attempt in range(max_retries):
+		try:
+			req = urllib.request.Request(url, headers={'User-Agent': 'PatchSentinel/1.0'})
+			with urllib.request.urlopen(req, timeout=30) as response, open(cache_path, 'wb') as out_file:
+				out_file.write(response.read())
+			return cache_path
+		except urllib.error.HTTPError as e:
+			if e.code == 404:
+				return None
+			if e.code >= 500 and attempt < max_retries - 1:
+				wait = 2 ** attempt
+				print(f"⚠️ Server error {e.code}, retrying in {wait}s...")
+				time.sleep(wait)
+				continue
+			sys.exit(f"❌ Network error downloading archive: {e}")
+		except (urllib.error.URLError, OSError, TimeoutError) as e:
+			if attempt < max_retries - 1:
+				wait = 2 ** attempt
+				print(f"⚠️ Transient error: {e}, retrying in {wait}s...")
+				time.sleep(wait)
+				continue
+			sys.exit(f"❌ Network error downloading archive: {e}")
 
 # --- Webhook Formatters ---
 
