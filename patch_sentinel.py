@@ -183,8 +183,8 @@ def send_notification(config, cve_id, product, severity, desc):
 			]
 		}
 
-	req = urllib.request.Request(webhook_url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json', 'User-Agent': 'PatchSentinel/1.0'})
 	try:
+		req = urllib.request.Request(webhook_url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json', 'User-Agent': 'PatchSentinel/1.0'})
 		urllib.request.urlopen(req, timeout=30)
 		print(f"✅ Notification sent for {cve_id} via {provider.capitalize()}")
 		print()
