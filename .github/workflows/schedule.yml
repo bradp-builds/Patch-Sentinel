@@ -35,11 +35,3 @@ jobs:
           git add last_run.txt
           git diff --staged --quiet || git commit -m "Update last run date"
           git push
-
-  keepalive:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: gautamkrishnar/keepalive-workflow@v2
