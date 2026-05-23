@@ -17,7 +17,15 @@ jobs:
           python-version: '3.x'
       - name: Install dependencies
         run: pip install PyYAML
+      - name: Check last run date
+        id: check
+        run: |
+          if [ -f last_run.txt ] && [ "$(cat last_run.txt)" = "$(date +%Y-%m-%d)" ]; then
+            echo "⏭️ Already ran today, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run Patch Sentinel
+        if: steps.check.outputs.skip != 'true'
         run: python patch_sentinel.py
         env:
           PATCH_SENTINEL_PROVIDER: ${{ vars.PATCH_SENTINEL_PROVIDER }}
@@ -26,9 +34,10 @@ jobs:
           TEST_MODE: ${{ vars.TEST_MODE }}
           MIN_SEVERITY_SCORE: ${{ vars.MIN_SEVERITY_SCORE }}
           MONITORED_SOURCES: ${{ vars.MONITORED_SOURCES }}
-      - name: Commit last run date
-        if: success()
+      - name: Update and commit last run date
+        if: success() && steps.check.outputs.skip != 'true'
         run: |
+          date +%Y-%m-%d > last_run.txt
           git config user.name "patch-sentinel[bot]"
           git config user.email "patch-sentinel[bot]@users.noreply.github.com"
           git add last_run.txt

@@ -298,16 +298,6 @@ def main():
 	config = load_config(args.config)
 	
 	today = (datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-	#today = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-
-	try:
-		with open("last_run.txt") as f:
-			last_run = f.read().strip()
-	except FileNotFoundError:
-		last_run = ""
-	if last_run == today and not config.get("test_mode", False):
-		print(f"⏭️ Already ran successfully on {today}, skipping.")
-		return
 
 	archive_path = fetch_cve_archive(today)
 	if archive_path is None:
@@ -315,10 +305,6 @@ def main():
 
 	process_archive(config, archive_path)
 
-	if not config.get("test_mode", False):
-		with open("last_run.txt", "w") as f:
-			f.write(today + "\n")
-	
 	print("🏁 Run complete.")
 
 if __name__ == "__main__":
