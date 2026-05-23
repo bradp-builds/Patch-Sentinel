@@ -5,7 +5,7 @@ Monitor CVE publications for your software stack and get alerted via Discord or 
 ## Features
 
 - **Daily CVE delta** — Fetches the official [CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) archive each day, processing only new and updated CVEs.
-- **Product matching** — Glob pattern matching (e.g. `nginx*`, `linux`) against `containers.cna.affected[].product` in the CVE JSON 5 schema. Falls back to description text when product is empty.
+- **Product matching** — Glob pattern matching (e.g. `nginx*`, `linux`) against `containers.cna.affected[].product` in the CVE JSON schema. Falls back to description text when product is empty.
 - **CVSS score filter** — Optional minimum severity threshold. CVEs with no CVSS score always pass through.
 - **Rich notifications** — Formatted alerts via Discord embeds or Slack blocks.
 - **Dual config modes** — YAML file for local use, environment variables for CI (GitHub Actions).
@@ -19,7 +19,7 @@ Monitor CVE publications for your software stack and get alerted via Discord or 
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USER/patch-sentinel.git
+git clone https://github.com/bradp-builds/patch-sentinel.git
 cd patch-sentinel
 ```
 
@@ -81,7 +81,7 @@ PATCH_SENTINEL_PROVIDER=discord \
 
 ## GitHub Actions
 
-This repository includes a pre-built workflow at `.github/workflows/schedule.yml`. Fork the whole repo and set the following in your copy:
+This repository includes a pre-built workflow at `.github/workflows/schedule.yml`. Fork the repo and set the following in your copy:
 
 **Secrets** (repo → Settings → Secrets and variables → Actions):
 - `DISCORD_WEBHOOK_URL`
