@@ -1,0 +1,36 @@
+# Patch Sentinel - Upstream Monitoring Configuration
+#
+# Configuration can also be provided via environment variables (useful for
+# GitHub Actions). When PATCH_SENTINEL_PROVIDER is set in the environment,
+# the config file is ignored entirely and values are read from env vars:
+#
+#   PATCH_SENTINEL_PROVIDER  — "discord" or "slack" (required)
+#   DISCORD_WEBHOOK_URL      — Discord webhook URL (required when provider is "discord")
+#   SLACK_WEBHOOK_URL        — Slack webhook URL (required when provider is "slack")
+#   TEST_MODE                — "true" or "false" (default: false)
+#   MIN_SEVERITY_SCORE       — number 0–10 (optional, no default)
+#   MONITORED_SOURCES        — newline- or comma-separated glob patterns (optional)
+
+# Test Mode
+test_mode: true
+
+# Notification Engine
+# STRICT RULE: Must be exactly "discord" or "slack"
+notification_provider: "discord"
+
+providers:
+  discord:
+    webhook_url: "https://discord.com/api/webhooks/YOUR_DISCORD_WEBHOOK_HERE"
+  slack:
+    webhook_url: "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK_HERE"
+
+# Minimum CVSS base score threshold (0-10). CVEs below this are skipped.
+# Not set / absent = notify on all matched CVEs.
+# If a CVE has no CVSS score, it is always notified regardless of this setting.
+min_severity_score: 6.0
+
+# Upstream Packages to Monitor
+# Supports standard wildcard globbing (e.g., nginx*)
+monitored_sources:
+  - "linux"
+  - "nginx*"
