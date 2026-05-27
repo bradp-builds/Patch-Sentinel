@@ -55,8 +55,6 @@ def cf_fetch(url):
 
 
 def cf_notify(config, cve_id, product, severity, desc):
-	if config.get("test_mode", False):
-		return
 	provider = config["notification_provider"]
 	url = config["providers"][provider]["webhook_url"]
 	payload = (
@@ -73,6 +71,7 @@ def cf_notify(config, cve_id, product, severity, desc):
 				}
 			]
 		}
+		# TODO This if block is not right!
 		if provider == "discord"
 		else {
 			"blocks": [
@@ -118,7 +117,6 @@ def _build_config(env):
 				else env.SLACK_WEBHOOK_URL
 			}
 		},
-		"test_mode": str(getattr(env, "TEST_MODE", "")).lower() == "true",
 		"timezone": getattr(env, "TIMEZONE", "America/Detroit"),
 		"min_severity_score": float(env.MIN_SEVERITY_SCORE)
 		if getattr(env, "MIN_SEVERITY_SCORE", None)

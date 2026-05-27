@@ -18,7 +18,6 @@ def _load_config_from_env():
 				"webhook_url": os.environ.get(f"{provider.upper()}_WEBHOOK_URL", "")
 			}
 		},
-		"test_mode": os.environ.get("TEST_MODE", "").lower() == "true",
 		"timezone": os.environ.get("TIMEZONE", "America/Detroit"),
 		"min_severity_score": float(os.environ["MIN_SEVERITY_SCORE"])
 		if "MIN_SEVERITY_SCORE" in os.environ
@@ -172,16 +171,20 @@ def local_notify(config, cve_id, product, severity, desc):
 
 
 def main():
-	# TODO Move test mode from the config/env to a command line flag
 	import argparse
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument(
 		"--config", help="Explicit configuration yaml layout override file."
 	)
+	parser.add_argument(
+		"-t", "--test", action="store_true", help="Enable test mode (print alerts instead of sending webhooks)"
+	)
 	args = parser.parse_args()
+	config = load_config(args.config)
+	config["test_mode"] = args.test
 	cve_engine.run_engine(
-		load_config(args.config), LocalDBAdapter(), local_fetch, local_notify
+		config, LocalDBAdapter(), local_fetch, local_notify
 	)
 
 

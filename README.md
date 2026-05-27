@@ -9,7 +9,7 @@ Monitor CVE publications for your software stack and get alerted via Discord or 
 - **CVSS score filter** — Optional minimum severity threshold. CVEs with no CVSS score always pass through.
 - **Rich notifications** — Formatted alerts via Discord embeds or Slack blocks.
 - **Dual config modes** — YAML file for local use, environment variables for CI (GitHub Actions).
-- **Test mode** — Print alerts to stdout instead of firing webhooks.
+- **Test mode** — Run with `--test` to print alerts to stdout instead of firing webhooks.
 - **Lightweight** — Single Python file, no pip dependencies.
 
 ## Prerequisites
@@ -32,7 +32,6 @@ Two mutually exclusive modes. When `PATCH_SENTINEL_PROVIDER` is set in the envir
 Copy `sample.config.yaml` to `config.yaml` and fill in your settings:
 
 ```yaml
-test_mode: true
 notification_provider: "discord"
 
 providers:
@@ -52,14 +51,13 @@ monitored_sources:
 
 ### Env-var config (GitHub Actions / CI)
 
-Set `PATCH_SENTINEL_PROVIDER` to enable this mode:
+Set `PATCH_SENTINEL_PROVIDER` to enable this mode. Use `-t`/`--test` on the CLI to enable test mode.
 
 | Variable | Required | Description |
 |---|---|---|
 | `PATCH_SENTINEL_PROVIDER` | Yes | `"discord"` or `"slack"` |
 | `DISCORD_WEBHOOK_URL` | Per provider | Discord webhook URL |
 | `SLACK_WEBHOOK_URL` | Per provider | Slack webhook URL |
-| `TEST_MODE` | No | `"true"` or `"false"` (default: false) |
 | `MIN_SEVERITY_SCORE` | No | Number 0–10 |
 | `MONITORED_SOURCES` | No | Newline- or comma-separated globs |
 | `PATCH_SENTINEL_CONFIG` | No | Config file path (default: `config.yaml`). Ignored when `--config` is given. |
@@ -89,7 +87,6 @@ This repository includes a pre-built workflow at `.github/workflows/schedule.yml
 
 **Variables** (same page, Variables tab):
 - `PATCH_SENTINEL_PROVIDER` — `"discord"` or `"slack"`
-- `TEST_MODE` — `"true"` to dry-run
 - `MIN_SEVERITY_SCORE` — e.g. `6.0`
 - `MONITORED_SOURCES` — newline-separated patterns
 

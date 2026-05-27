@@ -7,12 +7,8 @@
 #   PATCH_SENTINEL_PROVIDER  — "discord" or "slack" (required)
 #   DISCORD_WEBHOOK_URL      — Discord webhook URL (required when provider is "discord")
 #   SLACK_WEBHOOK_URL        — Slack webhook URL (required when provider is "slack")
-#   TEST_MODE                — "true" or "false" (default: false)
 #   MIN_SEVERITY_SCORE       — number 0–10 (optional, no default)
 #   MONITORED_SOURCES        — newline- or comma-separated glob patterns (optional)
-
-# Test Mode
-test_mode: true
 
 # Notification Engine
 # STRICT RULE: Must be exactly "discord" or "slack"
