@@ -1,13 +1,13 @@
 # Patch Sentinel
 
-Monitor CVE publications for your software stack and get alerted via Discord or Slack — daily, automated, zero-infrastructure.
+Monitor CVE publications for your software stack and get alerted via Discord — daily, automated, zero-infrastructure.
 
 ## Features
 
 - **Daily CVE delta** — Fetches the official [CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) archive each day, processing only new and updated CVEs.
 - **Product matching** — Glob pattern matching (e.g. `nginx*`, `linux`) against `containers.cna.affected[].product` in the CVE JSON schema. Falls back to description text when product is empty.
 - **CVSS score filter** — Optional minimum severity threshold. CVEs with no CVSS score always pass through.
-- **Rich notifications** — Formatted alerts via Discord embeds or Slack blocks.
+- **Rich notifications** — Formatted alerts via Discord embeds.
 - **Dual config modes** — YAML file for local use, environment variables for CI (GitHub Actions).
 - **Test mode** — Run with `--test` to print alerts to stdout instead of firing webhooks.
 - **Lightweight** — Single Python file, no pip dependencies.
@@ -37,8 +37,6 @@ notification_provider: "discord"
 providers:
   discord:
     webhook_url: "https://discord.com/api/webhooks/..."
-  slack:
-    webhook_url: "https://hooks.slack.com/services/..."
 
 min_severity_score: 6.0
 
@@ -55,9 +53,8 @@ Set `PATCH_SENTINEL_PROVIDER` to enable this mode. Use `-t`/`--test` on the CLI 
 
 | Variable | Required | Description |
 |---|---|---|
-| `PATCH_SENTINEL_PROVIDER` | Yes | `"discord"` or `"slack"` |
-| `DISCORD_WEBHOOK_URL` | Per provider | Discord webhook URL |
-| `SLACK_WEBHOOK_URL` | Per provider | Slack webhook URL |
+| `PATCH_SENTINEL_PROVIDER` | Yes | `"discord"` |
+| `DISCORD_WEBHOOK_URL` | Yes | Discord webhook URL |
 | `MIN_SEVERITY_SCORE` | No | Number 0–10 |
 | `MONITORED_SOURCES` | No | Newline- or comma-separated globs |
 | `PATCH_SENTINEL_CONFIG` | No | Config file path (default: `config.yaml`). Ignored when `--config` is given. |
@@ -73,8 +70,8 @@ python3 patch_sentinel.py --config path/to/config.yaml
 # Env-var mode
 PATCH_SENTINEL_PROVIDER=discord \
   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
-  MONITORED_SOURCES="linux,nginx*" \
-  python3 patch_sentinel.py
+	MONITORED_SOURCES="linux,nginx*" \
+	python3 patch_sentinel.py
 ```
 
 ## GitHub Actions
@@ -83,12 +80,10 @@ This repository includes a pre-built workflow at `.github/workflows/schedule.yml
 
 **Secrets** (repo → Settings → Secrets and variables → Actions):
 - `DISCORD_WEBHOOK_URL`
-- `SLACK_WEBHOOK_URL`
 
 **Variables** (same page, Variables tab):
-- `PATCH_SENTINEL_PROVIDER` — `"discord"` or `"slack"`
+- `PATCH_SENTINEL_PROVIDER` — `"discord"`
 - `MIN_SEVERITY_SCORE` — e.g. `6.0`
-- `MONITORED_SOURCES` — newline-separated patterns
 
 The workflow:
 - Runs twice daily (08:00 and 20:00 UTC)

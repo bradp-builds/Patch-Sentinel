@@ -55,47 +55,20 @@ def cf_fetch(url):
 
 
 def cf_notify(config, cve_id, product, severity, desc):
-	provider = config["notification_provider"]
-	url = config["providers"][provider]["webhook_url"]
-	payload = (
-		{
-			"embeds": [
-				{
-					"title": f"🚨 Vulnerability Detected: {cve_id}",
-					"color": 16711680,
-					"fields": [
-						{"name": "Impacted Software", "value": product, "inline": True},
-						{"name": "Severity", "value": severity, "inline": True},
-						{"name": "Description", "value": desc},
-					],
-				}
-			]
-		}
-		# TODO This if block is not right!
-		if provider == "discord"
-		else {
-			"blocks": [
-				{
-					"type": "header",
-					"text": {
-						"type": "plain_text",
-						"text": f"🚨 Vulnerability: {cve_id}",
-					},
-				},
-				{
-					"type": "section",
-					"fields": [
-						{"type": "mrkdwn", "text": f"*Software:* {product}"},
-						{"type": "mrkdwn", "text": f"*Severity:* {severity}"},
-					],
-				},
-				{
-					"type": "section",
-					"text": {"type": "mrkdwn", "text": f"*Description:* {desc}"},
-				},
-			]
-		}
-	)
+	url = config["providers"]["discord"]["webhook_url"]
+	payload = {
+		"embeds": [
+			{
+				"title": f"🚨 Vulnerability Detected: {cve_id}",
+				"color": 16711680,
+				"fields": [
+					{"name": "Impacted Software", "value": product, "inline": True},
+					{"name": "Severity", "value": severity, "inline": True},
+					{"name": "Description", "value": desc},
+				],
+			}
+		]
+	}
 
 	async def _async_send():
 		hdrs = Headers.new(
@@ -108,13 +81,15 @@ def cf_notify(config, cve_id, product, severity, desc):
 
 def _build_config(env):
 	provider = env.PATCH_SENTINEL_PROVIDER
+	if provider != "discord":
+		raise ValueError(
+			f"PATCH_SENTINEL_PROVIDER must be 'discord'. Got '{provider}'. Slack support has been removed."
+		)
 	config = {
-		"notification_provider": provider,
+		"notification_provider": "discord",
 		"providers": {
-			provider: {
+			"discord": {
 				"webhook_url": env.DISCORD_WEBHOOK_URL
-				if provider == "discord"
-				else env.SLACK_WEBHOOK_URL
 			}
 		},
 		"timezone": getattr(env, "TIMEZONE", "America/Detroit"),

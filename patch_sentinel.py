@@ -10,12 +10,11 @@ import cve_engine
 
 
 def _load_config_from_env():
-	provider = os.environ["PATCH_SENTINEL_PROVIDER"]
 	config = {
-		"notification_provider": provider,
+		"notification_provider": "discord",
 		"providers": {
-			provider: {
-				"webhook_url": os.environ.get(f"{provider.upper()}_WEBHOOK_URL", "")
+			"discord": {
+				"webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", "")
 			}
 		},
 		"timezone": os.environ.get("TIMEZONE", "America/Detroit"),
@@ -34,6 +33,11 @@ def _load_config_from_env():
 
 def load_config(config_path=None):
 	if "PATCH_SENTINEL_PROVIDER" in os.environ:
+		provider = os.environ["PATCH_SENTINEL_PROVIDER"]
+		if provider != "discord":
+			sys.exit(
+				f"❌ PATCH_SENTINEL_PROVIDER must be 'discord'. Got '{provider}'. Slack support has been removed."
+			)
 		return _load_config_from_env()
 	config_path = (
 		config_path or os.environ.get("PATCH_SENTINEL_CONFIG") or "config.yaml"
@@ -115,46 +119,20 @@ def local_notify(config, cve_id, product, severity, desc):
 			f"[TEST MODE] Alerting for {cve_id} | Product: {product} | Match Level: {severity}\nSummary: {desc[:100]}...\n"
 		)
 		return
-	provider = config["notification_provider"]
-	url = config["providers"][provider]["webhook_url"]
-	payload = (
-		{
-			"embeds": [
-				{
-					"title": f"🚨 Vulnerability Detected: {cve_id}",
-					"color": 16711680,
-					"fields": [
-						{"name": "Impacted Software", "value": product, "inline": True},
-						{"name": "Severity", "value": severity, "inline": True},
-						{"name": "Description", "value": desc},
-					],
-				}
-			]
-		}
-		if provider == "discord"
-		else {
-			"blocks": [
-				{
-					"type": "header",
-					"text": {
-						"type": "plain_text",
-						"text": f"🚨 Vulnerability: {cve_id}",
-					},
-				},
-				{
-					"type": "section",
-					"fields": [
-						{"type": "mrkdwn", "text": f"*Software:* {product}"},
-						{"type": "mrkdwn", "text": f"*Severity:* {severity}"},
-					],
-				},
-				{
-					"type": "section",
-					"text": {"type": "mrkdwn", "text": f"*Description:* {desc}"},
-				},
-			]
-		}
-	)
+	url = config["providers"]["discord"]["webhook_url"]
+	payload = {
+		"embeds": [
+			{
+				"title": f"🚨 Vulnerability Detected: {cve_id}",
+				"color": 16711680,
+				"fields": [
+					{"name": "Impacted Software", "value": product, "inline": True},
+					{"name": "Severity", "value": severity, "inline": True},
+					{"name": "Description", "value": desc},
+				],
+			}
+		]
+	}
 	try:
 		req = urllib.request.Request(
 			url,
