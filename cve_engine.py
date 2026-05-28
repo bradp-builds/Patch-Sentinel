@@ -184,18 +184,17 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 		if not db_adapter.is_diff_processed(rid)
 	]
 
-	is_test = config.get("test_mode", False)
-	if not is_test and len(unprocessed) > 3:
-		print(
-			f"⚠️ Caught {len(unprocessed)} unprocessed hours. Enforcing safety execution cap of 3."
-		)
-		unprocessed = unprocessed[:3]
-
 	if not unprocessed:
 		print("🏁 Processing pipeline is complete and up to date.")
 		return
 
+	is_test = config.get("test_mode", False)
+	successful_count = 0
+	max_successful = 3 if not is_test else len(unprocessed)
+
 	for dt, release_id in unprocessed:
+		if successful_count >= max_successful:
+			break
 		date_str = dt.strftime("%Y-%m-%d")
 		hour_str = dt.strftime("%H")
 
@@ -210,3 +209,4 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 
 		process_zip_data(config, zip_bytes, db_adapter, send_notify_func)
 		db_adapter.mark_diff_processed(release_id)
+		successful_count += 1
