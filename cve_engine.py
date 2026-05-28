@@ -104,11 +104,7 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 						break
 
 				min_score = config.get("min_severity_score")
-				if (
-					min_score is not None
-					and base_score is not None
-					and base_score < min_score
-				):
+				if min_score is not None and (base_score is None or base_score < min_score):
 					continue
 
 				matched = False
