@@ -129,17 +129,20 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func):
 
 					matched = False
 					matched_product = ""
+					had_product = False
 					for node in affected_nodes:
 						original_name = str(node.get("product", "") or "")
-						if original_name and any(
-							fnmatch.fnmatch(original_name.lower(), pat.lower())
-							for pat in monitored_sources
-						):
-							matched = True
-							matched_product = original_name
-							break
+						if original_name:
+							had_product = True
+							if any(
+								fnmatch.fnmatch(original_name.lower(), pat.lower())
+								for pat in monitored_sources
+							):
+								matched = True
+								matched_product = original_name
+								break
 
-					if not matched:
+					if not matched and not had_product:
 						for pattern in monitored_sources:
 							if pattern.lower() in desc_text.lower():
 								matched = True
