@@ -50,124 +50,100 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func):
 	"""Unzips, scans delta logs, filters by stack pattern/score, and checks daily caps"""
 	monitored_sources = config.get("monitored_sources", [])
 
-	with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as outer_zip:
-		# Hourly releases contain target CVE logs directly or inside a flat inner zip
-		inner_zips = [name for name in outer_zip.namelist() if name.endswith(".zip")]
-		zip_obj = (
-			zipfile.ZipFile(io.BytesIO(outer_zip.read(inner_zips[0])), "r")
-			if inner_zips
-			else outer_zip
-		)
+	with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+		target_cves = set()
 
-		try:
-			delta_paths = [
-				name for name in zip_obj.namelist() if name.endswith("delta.json")
-			]
-			target_cves = set()
+		for name in zf.namelist():
+			if not name.endswith(".json") or name.endswith("schema.json"):
+				continue
+			cve_id = os.path.splitext(os.path.basename(name))[0]
+			if cve_id.startswith("CVE-"):
+				target_cves.add(cve_id)
 
-			if delta_paths:
-				delta_data = json.loads(zip_obj.read(delta_paths[0]))
-				for category in ["new", "updated"]:
-					for item in delta_data.get(category, []):
-						cve_id = item.get("cveId") if isinstance(item, dict) else item
-						if cve_id:
-							target_cves.add(cve_id)
-			else:
-				# Direct file-fallback if running from an unfiltered baseline
-				for name in zip_obj.namelist():
-					if name.endswith(".json") and not name.endswith("schema.json"):
-						cve_id = os.path.splitext(os.path.basename(name))[0]
-						if cve_id.startswith("CVE-"):
-							target_cves.add(cve_id)
+		if not target_cves:
+			return
 
-			if not target_cves:
-				return
+		cve_path_map = {
+			os.path.splitext(os.path.basename(n))[0]: n
+			for n in zf.namelist()
+			if n.endswith(".json")
+		}
+		local_date_str = get_local_date(config.get("timezone", "America/Detroit"))
 
-			cve_path_map = {
-				os.path.splitext(os.path.basename(n))[0]: n
-				for n in zip_obj.namelist()
-				if n.endswith(".json")
-			}
-			local_date_str = get_local_date(config.get("timezone", "America/Detroit"))
+		for cve_id in sorted(target_cves):
+			filepath = cve_path_map.get(cve_id)
+			if not filepath:
+				continue
 
-			for cve_id in sorted(target_cves):
-				filepath = cve_path_map.get(cve_id)
-				if not filepath:
+			try:
+				cve_record = json.loads(zf.read(filepath))
+				cna = cve_record.get("containers", {}).get("cna", {})
+				affected_nodes = cna.get("affected", [])
+				descriptions = cna.get("descriptions", [])
+				metrics = cna.get("metrics", [])
+
+				desc_text = (
+					descriptions[0].get("value", "No description provided")
+					if descriptions
+					else "No description provided"
+				)
+
+				base_score = None
+				severity = "Unknown"
+				for metric in metrics:
+					for version in ["cvssV4_0", "cvssV3_1", "cvssV3_0"]:
+						if version in metric:
+							base_score = metric[version].get("baseScore")
+							severity = f"{metric[version].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
+							break
+					if base_score is not None:
+						break
+
+				min_score = config.get("min_severity_score")
+				if (
+					min_score is not None
+					and base_score is not None
+					and base_score < min_score
+				):
 					continue
 
-				try:
-					cve_record = json.loads(zip_obj.read(filepath))
-					cna = cve_record.get("containers", {}).get("cna", {})
-					affected_nodes = cna.get("affected", [])
-					descriptions = cna.get("descriptions", [])
-					metrics = cna.get("metrics", [])
-
-					desc_text = (
-						descriptions[0].get("value", "No description provided")
-						if descriptions
-						else "No description provided"
-					)
-
-					base_score = None
-					severity = "Unknown"
-					for metric in metrics:
-						for version in ["cvssV4_0", "cvssV3_1", "cvssV3_0"]:
-							if version in metric:
-								base_score = metric[version].get("baseScore")
-								severity = f"{metric[version].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
-								break
-						if base_score is not None:
+				matched = False
+				matched_product = ""
+				had_product = False
+				for node in affected_nodes:
+					original_name = str(node.get("product", "") or "")
+					if original_name:
+						had_product = True
+						if any(
+							fnmatch.fnmatch(original_name.lower(), pat.lower())
+							for pat in monitored_sources
+						):
+							matched = True
+							matched_product = original_name
 							break
 
-					min_score = config.get("min_severity_score")
-					if (
-						min_score is not None
-						and base_score is not None
-						and base_score < min_score
-					):
+				if not matched and not had_product:
+					for pattern in monitored_sources:
+						if pattern.lower() in desc_text.lower():
+							matched = True
+							matched_product = pattern
+							break
+
+				if matched:
+					if db_adapter.has_notified_today(cve_id, local_date_str):
+						print(
+							f"ℹ️ {cve_id} already updated today ({local_date_str}). Suppressing duplicate spam."
+						)
 						continue
 
-					matched = False
-					matched_product = ""
-					had_product = False
-					for node in affected_nodes:
-						original_name = str(node.get("product", "") or "")
-						if original_name:
-							had_product = True
-							if any(
-								fnmatch.fnmatch(original_name.lower(), pat.lower())
-								for pat in monitored_sources
-							):
-								matched = True
-								matched_product = original_name
-								break
+					send_notify_func(
+						config, cve_id, matched_product, severity, desc_text
+					)
+					db_adapter.record_notification(cve_id, local_date_str)
 
-					if not matched and not had_product:
-						for pattern in monitored_sources:
-							if pattern.lower() in desc_text.lower():
-								matched = True
-								matched_product = pattern
-								break
-
-					if matched:
-						# Apply local-day notification rate limit per individual CVE
-						if db_adapter.has_notified_today(cve_id, local_date_str):
-							print(
-								f"ℹ️ {cve_id} already updated today ({local_date_str}). Suppressing duplicate spam."
-							)
-							continue
-
-						send_notify_func(
-							config, cve_id, matched_product, severity, desc_text
-						)
-						db_adapter.record_notification(cve_id, local_date_str)
-
-				except Exception as e:
-					print(f"⚠️ Skipping parsing error on {cve_id}: {e}")
-					continue
-		finally:
-			if inner_zips:
-				zip_obj.close()
+			except Exception as e:
+				print(f"⚠️ Skipping parsing error on {cve_id}: {e}")
+				continue
 
 
 def run_engine(config, db_adapter, fetch_func, send_notify_func):
