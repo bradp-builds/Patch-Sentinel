@@ -46,7 +46,7 @@ def get_local_date(tz_name="America/Detroit"):
 		return (utc_now + timedelta(hours=offset_hours)).strftime("%Y-%m-%d")
 
 
-def process_zip_data(config, zip_bytes, db_adapter, send_notify_func):
+def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_str):
 	"""Unzips, scans delta logs, filters by stack pattern/score, and checks daily caps"""
 	monitored_sources = config.get("monitored_sources", [])
 
@@ -77,6 +77,10 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func):
 
 			try:
 				cve_record = json.loads(zf.read(filepath))
+				date_published = cve_record.get("cveMetadata", {}).get("datePublished")
+				if not date_published or date_published[:10] != zip_date_str:
+					continue
+
 				cna = cve_record.get("containers", {}).get("cna", {})
 				affected_nodes = cna.get("affected", [])
 				descriptions = cna.get("descriptions", [])
@@ -186,6 +190,6 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 			)
 			continue
 
-		process_zip_data(config, zip_bytes, db_adapter, send_notify_func)
+		process_zip_data(config, zip_bytes, db_adapter, send_notify_func, date_str)
 		db_adapter.mark_diff_processed(release_id)
 		successful_count += 1
