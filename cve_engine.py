@@ -46,7 +46,7 @@ def get_local_date(tz_name="America/Detroit"):
 		return (utc_now + timedelta(hours=offset_hours)).strftime("%Y-%m-%d")
 
 
-def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_str):
+def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_str, encountered_cves):
 	"""Unzips, scans delta logs, filters by stack pattern/score, and checks daily caps"""
 	monitored_sources = config.get("monitored_sources", [])
 
@@ -81,6 +81,10 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 				if not date_published or date_published[:10] != zip_date_str:
 					continue
 
+				if cve_id in encountered_cves:
+					continue
+				encountered_cves.add(cve_id)
+
 				cna = cve_record.get("containers", {}).get("cna", {})
 				affected_nodes = cna.get("affected", [])
 				descriptions = cna.get("descriptions", [])
@@ -105,6 +109,9 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 
 				min_score = config.get("min_severity_score")
 				if min_score is not None and (base_score is None or base_score < min_score):
+					print(
+						f"⏭️ Skipping {cve_id}: below minimum severity score (score={base_score}, min={min_score})"
+					)
 					continue
 
 				matched = False
@@ -136,10 +143,13 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 						)
 						continue
 
+					print(f"🔔 Notifying about {cve_id} ({matched_product})")
 					send_notify_func(
 						config, cve_id, matched_product, severity, desc_text
 					)
 					db_adapter.record_notification(cve_id, local_date_str)
+				else:
+					print(f"⏭️ Skipping {cve_id}: \"{original_name}\" doesn't match any monitored products")
 
 			except Exception as e:
 				print(f"⚠️ Skipping parsing error on {cve_id}: {e}")
@@ -170,6 +180,7 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 	is_test = config.get("test_mode", False)
 	successful_count = 0
 	max_successful = 3 if not is_test else len(unprocessed)
+	encountered_cves: set[str] = set()
 
 	for dt, release_id in unprocessed:
 		if successful_count >= max_successful:
@@ -186,6 +197,7 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 			)
 			continue
 
-		process_zip_data(config, zip_bytes, db_adapter, send_notify_func, date_str)
+		print(f"📦 Downloaded delta: {release_id}")
+		process_zip_data(config, zip_bytes, db_adapter, send_notify_func, date_str, encountered_cves)
 		db_adapter.mark_diff_processed(release_id)
 		successful_count += 1
