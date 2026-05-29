@@ -9,6 +9,9 @@
 #   MIN_SEVERITY_SCORE       — number 0–10 (optional, no default)
 #   MONITORED_SOURCES        — newline- or comma-separated glob patterns (optional)
 
+# Timezone
+timezone: "America/Detroit"
+
 # Notification Engine
 notification_provider: "discord"
 

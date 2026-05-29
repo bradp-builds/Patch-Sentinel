@@ -23,7 +23,7 @@ class DBAdapter:
 		raise NotImplementedError
 
 
-def get_local_date(tz_name="America/Detroit"):
+def get_local_date(tz_name="UTC"):
 	"""Calculates the recipient's localized calendar day string (YYYY-MM-DD)"""
 	utc_now = datetime.now(timezone.utc)
 	try:
@@ -68,7 +68,7 @@ async def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_
 			for n in zf.namelist()
 			if n.endswith(".json")
 		}
-		local_date_str = get_local_date(config.get("timezone", "America/Detroit"))
+		local_date_str = get_local_date(config.get("timezone", "UTC"))
 
 		for cve_id in sorted(target_cves):
 			filepath = cve_path_map.get(cve_id)

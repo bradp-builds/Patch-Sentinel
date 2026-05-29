@@ -18,7 +18,7 @@ def _load_config_from_env():
 				"webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", "")
 			}
 		},
-		"timezone": os.environ.get("TIMEZONE", "America/Detroit"),
+		"timezone": os.environ.get("TIMEZONE", "UTC"),
 		"min_severity_score": float(os.environ["MIN_SEVERITY_SCORE"])
 		if "MIN_SEVERITY_SCORE" in os.environ
 		else None,
@@ -49,7 +49,7 @@ def load_config(config_path=None):
 		with open(config_path, "r") as f:
 			cfg = yaml.safe_load(f)
 		if "timezone" not in cfg:
-			cfg["timezone"] = "America/Detroit"
+			cfg["timezone"] = "UTC"
 		return cfg
 	except Exception as e:
 		sys.exit(f"❌ Failed loading config path '{config_path}': {e}")

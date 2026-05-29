@@ -96,7 +96,7 @@ def _build_config(env):
 				"webhook_url": env.DISCORD_WEBHOOK_URL
 			}
 		},
-		"timezone": getattr(env, "TIMEZONE", "America/Detroit"),
+		"timezone": getattr(env, "TIMEZONE", "UTC"),
 		"min_severity_score": float(env.MIN_SEVERITY_SCORE)
 		if getattr(env, "MIN_SEVERITY_SCORE", None) is not None
 		else None,
