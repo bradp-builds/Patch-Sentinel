@@ -96,24 +96,6 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 					else "No description provided"
 				)
 
-				base_score = None
-				severity = "Unknown"
-				for metric in metrics:
-					for version in ["cvssV4_0", "cvssV3_1", "cvssV3_0"]:
-						if version in metric:
-							base_score = metric[version].get("baseScore")
-							severity = f"{metric[version].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
-							break
-					if base_score is not None:
-						break
-
-				min_score = config.get("min_severity_score")
-				if min_score is not None and (base_score is None or base_score < min_score):
-					print(
-						f"⏭️ Skipping {cve_id}: below minimum severity score (score={base_score}, min={min_score})"
-					)
-					continue
-
 				matched = False
 				matched_product = ""
 				had_product = False
@@ -139,7 +121,25 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 				if matched:
 					if db_adapter.has_notified_today(cve_id, local_date_str):
 						print(
-							f"ℹ️ {cve_id} already updated today ({local_date_str}). Suppressing duplicate spam."
+							f"ℹ️ Skipping {cve_id} ({matched_product}): already notified today"
+						)
+						continue
+
+					base_score = None
+					severity = "Unknown"
+					for metric in metrics:
+						for version in ["cvssV4_0", "cvssV3_1", "cvssV3_0"]:
+							if version in metric:
+								base_score = metric[version].get("baseScore")
+								severity = f"{metric[version].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
+								break
+						if base_score is not None:
+							break
+
+					min_score = config.get("min_severity_score")
+					if min_score is not None and (base_score is None or base_score < min_score):
+						print(
+							f"⏭️ Skipping {cve_id} ({matched_product}): below minimum severity score (score={base_score}, min={min_score})"
 						)
 						continue
 
@@ -149,10 +149,10 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 					)
 					db_adapter.record_notification(cve_id, local_date_str)
 				else:
-					print(f"⏭️ Skipping {cve_id}: \"{original_name}\" doesn't match any monitored products")
+					print(f"⏭️ Skipping {cve_id} ({original_name}): doesn't match any monitored products")
 
 			except Exception as e:
-				print(f"⚠️ Skipping parsing error on {cve_id}: {e}")
+				print(f"⚠️ Parsing error on {cve_id}: {e}")
 				continue
 
 
