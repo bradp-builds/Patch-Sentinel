@@ -8,6 +8,7 @@
 #   DISCORD_WEBHOOK_URL      — Discord webhook URL (required)
 #   MIN_SEVERITY_SCORE       — number 0–10 (optional, no default)
 #   MONITORED_SOURCES        — newline- or comma-separated glob patterns (optional)
+#   TIMEZONE                 — e.g. "America/Detroit" (optional, default UTC)
 
 # Timezone
 timezone: "America/Detroit"
