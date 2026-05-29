@@ -3,3 +3,4 @@ GEMINI.md
 config.yaml
 .cache
 __pycache__
+local_db.sqlite

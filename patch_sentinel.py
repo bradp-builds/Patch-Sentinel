@@ -56,7 +56,7 @@ def load_config(config_path=None):
 
 
 class LocalDBAdapter(cve_engine.DBAdapter):
-	def __init__(self, db_path="patch_sentinel.sqlite"):
+	def __init__(self, db_path="local_db.sqlite"):
 		self.db_path = db_path
 		with sqlite3.connect(self.db_path) as conn:
 			conn.execute(
