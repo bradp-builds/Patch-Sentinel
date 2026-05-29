@@ -1,16 +1,18 @@
 # src/worker.py
 from js import fetch, Headers, Response
 import json
-import asyncio
 import cve_engine
-
-# TODO This is how we create the d1 table
-# wrangler d1 execute <DATABASE_NAME> --command "CREATE TABLE IF NOT EXISTS processed_diffs (release_id TEXT PRIMARY KEY, processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS sent_notifications (cve_id TEXT, local_date TEXT, notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (cve_id, local_date));"
 
 
 class CloudflareDBAdapter(cve_engine.DBAdapter):
 	def __init__(self, d1_binding):
 		self.db = d1_binding
+		self.db.prepare(
+			"CREATE TABLE IF NOT EXISTS processed_diffs (release_id TEXT PRIMARY KEY, processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+		).run()
+		self.db.prepare(
+			"CREATE TABLE IF NOT EXISTS sent_notifications (cve_id TEXT, local_date TEXT, notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (cve_id, local_date));"
+		).run()
 
 	def is_diff_processed(self, release_id: str) -> bool:
 		return (
@@ -41,20 +43,22 @@ class CloudflareDBAdapter(cve_engine.DBAdapter):
 		).bind(cve_id, local_date).run()
 
 
-def cf_fetch(url):
-	async def _async_fetch():
+async def cf_fetch(url):
+	try:
 		res = await fetch(url)
 		if res.status == 404:
 			return None
 		if res.status != 200:
-			raise Exception(f"GitHub release returned status {res.status}")
+			print(f"⚠️ GitHub release returned status {res.status}")
+			return None
 		buf = await res.arrayBuffer()
 		return bytes(buf.to_py())
+	except Exception as e:
+		print(f"❌ Fetch error for {url}: {e}")
+		return None
 
-	return asyncio.run(_async_fetch())
 
-
-def cf_notify(config, cve_id, product, severity, desc):
+async def cf_notify(config, cve_id, product, severity, desc):
 	url = config["providers"]["discord"]["webhook_url"]
 	payload = {
 		"embeds": [
@@ -69,14 +73,14 @@ def cf_notify(config, cve_id, product, severity, desc):
 			}
 		]
 	}
-
-	async def _async_send():
+	try:
 		hdrs = Headers.new(
 			{"Content-Type": "application/json", "User-Agent": "PatchSentinel/1.0"}
 		)
 		await fetch(url, method="POST", body=json.dumps(payload), headers=hdrs)
-
-	asyncio.run(_async_send())
+		print(f"✅ Alert distributed for {cve_id}")
+	except Exception as e:
+		print(f"❌ Notification runtime fail for {cve_id}: {e}")
 
 
 def _build_config(env):
@@ -94,7 +98,7 @@ def _build_config(env):
 		},
 		"timezone": getattr(env, "TIMEZONE", "America/Detroit"),
 		"min_severity_score": float(env.MIN_SEVERITY_SCORE)
-		if getattr(env, "MIN_SEVERITY_SCORE", None)
+		if getattr(env, "MIN_SEVERITY_SCORE", None) is not None
 		else None,
 		"monitored_sources": [],
 	}
@@ -110,12 +114,12 @@ def _build_config(env):
 async def scheduled(event, env, ctx):
 	config = _build_config(env)
 	db_adapter = CloudflareDBAdapter(env.DB)
-	cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
+	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
 
 
 # Optional Fetch Hook for manual HTTP debugging triggers
 async def fetch_handler(request, env, ctx):
 	config = _build_config(env)
 	db_adapter = CloudflareDBAdapter(env.DB)
-	cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
+	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
 	return Response.new("Patch Sentinel Execution Complete")

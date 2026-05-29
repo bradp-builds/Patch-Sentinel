@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import sqlite3
+import asyncio
 import urllib.request
 import urllib.error
 
@@ -100,7 +101,7 @@ class LocalDBAdapter(cve_engine.DBAdapter):
 			)
 
 
-def local_fetch(url):
+async def local_fetch(url):
 	try:
 		req = urllib.request.Request(url, headers={"User-Agent": "PatchSentinel/1.0"})
 		with urllib.request.urlopen(req, timeout=30) as res:
@@ -113,7 +114,7 @@ def local_fetch(url):
 		sys.exit(f"❌ Critical Core Connection Interruption: {e}")
 
 
-def local_notify(config, cve_id, product, severity, desc):
+async def local_notify(config, cve_id, product, severity, desc):
 	if config.get("test_mode", False):
 		print(
 			f"[TEST MODE] Alerting for {cve_id} | Product: {product} | Match Level: {severity}\nSummary: {desc[:100]}...\n"
@@ -161,8 +162,8 @@ def main():
 	args = parser.parse_args()
 	config = load_config(args.config)
 	config["test_mode"] = args.test
-	cve_engine.run_engine(
-		config, LocalDBAdapter(), local_fetch, local_notify
+	asyncio.run(
+		cve_engine.run_engine(config, LocalDBAdapter(), local_fetch, local_notify)
 	)
 
 

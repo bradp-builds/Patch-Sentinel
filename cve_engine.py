@@ -46,7 +46,7 @@ def get_local_date(tz_name="America/Detroit"):
 		return (utc_now + timedelta(hours=offset_hours)).strftime("%Y-%m-%d")
 
 
-def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_str, encountered_cves):
+async def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_str, encountered_cves):
 	"""Unzips, scans delta logs, filters by stack pattern/score, and checks daily caps"""
 	monitored_sources = config.get("monitored_sources", [])
 
@@ -99,6 +99,7 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 				matched = False
 				matched_product = ""
 				had_product = False
+				original_name = "UNKNOWN"
 				for node in affected_nodes:
 					original_name = str(node.get("product", "") or "")
 					if original_name:
@@ -144,7 +145,7 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 						continue
 
 					print(f"🔔 Notifying about {cve_id} ({matched_product})")
-					send_notify_func(
+					await send_notify_func(
 						config, cve_id, matched_product, severity, desc_text
 					)
 					db_adapter.record_notification(cve_id, local_date_str)
@@ -156,7 +157,7 @@ def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_date_s
 				continue
 
 
-def run_engine(config, db_adapter, fetch_func, send_notify_func):
+async def run_engine(config, db_adapter, fetch_func, send_notify_func):
 	"""Evaluates the 24-hour lookback horizon and processes missing steps in order"""
 	current_utc = datetime.now(timezone.utc)
 	base_dt = current_utc.replace(minute=0, second=0, microsecond=0)
@@ -189,7 +190,7 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 		hour_str = dt.strftime("%H")
 
 		url = f"https://github.com/CVEProject/cvelistV5/releases/download/cve_{date_str}_{hour_str}00Z/{date_str}_delta_CVEs_at_{hour_str}00Z.zip"
-		zip_bytes = fetch_func(url)
+		zip_bytes = await fetch_func(url)
 
 		if zip_bytes is None:
 			print(
@@ -198,6 +199,6 @@ def run_engine(config, db_adapter, fetch_func, send_notify_func):
 			continue
 
 		print(f"📦 Downloaded delta: {release_id}")
-		process_zip_data(config, zip_bytes, db_adapter, send_notify_func, date_str, encountered_cves)
+		await process_zip_data(config, zip_bytes, db_adapter, send_notify_func, date_str, encountered_cves)
 		db_adapter.mark_diff_processed(release_id)
 		successful_count += 1
