@@ -1,4 +1,5 @@
 # worker.py
+from workers import WorkerEntrypoint
 from js import fetch as js_fetch, Headers, Response
 import json
 import cve_engine
@@ -110,16 +111,14 @@ def _build_config(env):
 	return config
 
 
-# Cloudflare Workers Cron Scheduled Hook Entry
-async def scheduled(event, env, ctx):
-	config = _build_config(env)
-	db_adapter = CloudflareDBAdapter(env.DB)
-	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
+class Default(WorkerEntrypoint):
+	async def fetch(self, request):
+		config = _build_config(self.env)
+		db_adapter = CloudflareDBAdapter(self.env.DB)
+		await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
+		return Response.new("Patch Sentinel Execution Complete")
 
-
-# Optional Fetch Hook for manual HTTP debugging triggers
-async def fetch(request, env, ctx):
-	config = _build_config(env)
-	db_adapter = CloudflareDBAdapter(env.DB)
-	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
-	return Response.new("Patch Sentinel Execution Complete")
+	async def scheduled(self, controller, env, ctx):
+		config = _build_config(env)
+		db_adapter = CloudflareDBAdapter(env.DB)
+		await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
