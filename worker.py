@@ -1,5 +1,5 @@
 # worker.py
-from js import fetch, Headers, Response
+from js import fetch as js_fetch, Headers, Response
 import json
 import cve_engine
 
@@ -45,7 +45,7 @@ class CloudflareDBAdapter(cve_engine.DBAdapter):
 
 async def cf_fetch(url):
 	try:
-		res = await fetch(url)
+		res = await js_fetch(url)
 		if res.status == 404:
 			return None
 		if res.status != 200:
@@ -123,4 +123,3 @@ async def fetch(request, env, ctx):
 	db_adapter = CloudflareDBAdapter(env.DB)
 	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
 	return Response.new("Patch Sentinel Execution Complete")
-mplete")
