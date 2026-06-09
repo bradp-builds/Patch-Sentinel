@@ -109,9 +109,11 @@ async def local_fetch(url):
 	except urllib.error.HTTPError as e:
 		if e.code == 404:
 			return None
-		sys.exit(f"❌ Target HTTP Error: {e}")
+		print(f"⚠️ GitHub release returned status {e.code}")
+		return None
 	except Exception as e:
-		sys.exit(f"❌ Critical Core Connection Interruption: {e}")
+		print(f"❌ Fetch error for {url}: {e}")
+		return None
 
 
 async def local_notify(config, cve_id, product, severity, desc):

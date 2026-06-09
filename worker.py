@@ -85,7 +85,7 @@ async def cf_notify(config, cve_id, product, severity, desc):
 
 
 def _build_config(env):
-	provider = env.PATCH_SENTINEL_PROVIDER
+	provider = getattr(env, "PATCH_SENTINEL_PROVIDER", None)
 	if provider != "discord":
 		raise ValueError(
 			f"PATCH_SENTINEL_PROVIDER must be 'discord'. Got '{provider}'. Slack support has been removed."
@@ -94,7 +94,7 @@ def _build_config(env):
 		"notification_provider": "discord",
 		"providers": {
 			"discord": {
-				"webhook_url": env.DISCORD_WEBHOOK_URL
+				"webhook_url": getattr(env, "DISCORD_WEBHOOK_URL", "")
 			}
 		},
 		"timezone": getattr(env, "TIMEZONE", "UTC"),

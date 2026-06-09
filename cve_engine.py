@@ -113,6 +113,7 @@ async def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_
 							break
 
 				if not matched and not had_product:
+					# Fallback uses substring search (not glob) against description text
 					for pattern in monitored_sources:
 						if pattern.lower() in desc_text.lower():
 							matched = True

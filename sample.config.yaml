@@ -22,7 +22,7 @@ providers:
 
 # Minimum CVSS base score threshold (0-10). CVEs below this are skipped.
 # Not set / absent = notify on all matched CVEs.
-# If a CVE has no CVSS score, it is always notified regardless of this setting.
+# If a CVE has no CVSS score, it is skipped when a threshold is set.
 min_severity_score: 6.0
 
 # Upstream Packages to Monitor
