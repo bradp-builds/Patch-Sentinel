@@ -77,7 +77,7 @@ async def cf_notify(config, cve_id, product, severity, desc):
 		hdrs = Headers.new(
 			{"Content-Type": "application/json", "User-Agent": "PatchSentinel/1.0"}
 		)
-		await fetch(url, method="POST", body=json.dumps(payload), headers=hdrs)
+		await js_fetch(url, method="POST", body=json.dumps(payload), headers=hdrs)
 		print(f"✅ Alert distributed for {cve_id}")
 	except Exception as e:
 		print(f"❌ Notification runtime fail for {cve_id}: {e}")
@@ -123,3 +123,4 @@ async def fetch(request, env, ctx):
 	db_adapter = CloudflareDBAdapter(env.DB)
 	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
 	return Response.new("Patch Sentinel Execution Complete")
+mplete")
