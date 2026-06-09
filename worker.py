@@ -1,4 +1,4 @@
-# src/worker.py
+# worker.py
 from js import fetch, Headers, Response
 import json
 import cve_engine
