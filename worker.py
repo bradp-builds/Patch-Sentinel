@@ -118,7 +118,7 @@ async def scheduled(event, env, ctx):
 
 
 # Optional Fetch Hook for manual HTTP debugging triggers
-async def fetch_handler(request, env, ctx):
+async def fetch(request, env, ctx):
 	config = _build_config(env)
 	db_adapter = CloudflareDBAdapter(env.DB)
 	await cve_engine.run_engine(config, db_adapter, cf_fetch, cf_notify)
