@@ -84,8 +84,15 @@ async def cf_notify(config, cve_id, product, severity, desc):
 		print(f"❌ Notification runtime fail for {cve_id}: {e}")
 
 
+def _env_get(env, key, default=None):
+	try:
+		return env[key]
+	except (KeyError, TypeError):
+		return getattr(env, key, default)
+
+
 def _build_config(env):
-	provider = getattr(env, "PATCH_SENTINEL_PROVIDER", None)
+	provider = _env_get(env, "PATCH_SENTINEL_PROVIDER", None)
 	if provider != "discord":
 		raise ValueError(
 			f"PATCH_SENTINEL_PROVIDER must be 'discord'. Got '{provider}'. Slack support has been removed."
@@ -94,17 +101,17 @@ def _build_config(env):
 		"notification_provider": "discord",
 		"providers": {
 			"discord": {
-				"webhook_url": getattr(env, "DISCORD_WEBHOOK_URL", "")
+				"webhook_url": _env_get(env, "DISCORD_WEBHOOK_URL", "")
 			}
 		},
-		"timezone": getattr(env, "TIMEZONE", "UTC"),
-		"min_severity_score": float(env.MIN_SEVERITY_SCORE)
-		if getattr(env, "MIN_SEVERITY_SCORE", None) is not None
+		"timezone": _env_get(env, "TIMEZONE", "UTC"),
+		"min_severity_score": float(_env_get(env, "MIN_SEVERITY_SCORE"))
+		if _env_get(env, "MIN_SEVERITY_SCORE", None) is not None
 		else None,
 		"monitored_sources": [],
 	}
-	if getattr(env, "MONITORED_SOURCES", None):
-		for line in str(env.MONITORED_SOURCES).splitlines():
+	if _env_get(env, "MONITORED_SOURCES", None):
+		for line in str(_env_get(env, "MONITORED_SOURCES")).splitlines():
 			for part in line.split(","):
 				if part.strip():
 					config["monitored_sources"].append(part.strip())
