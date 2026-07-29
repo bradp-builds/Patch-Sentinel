@@ -159,12 +159,12 @@ async def process_zip_data(config, zip_bytes, db_adapter, send_notify_func, zip_
 
 
 async def run_engine(config, db_adapter, fetch_func, send_notify_func):
-	"""Evaluates the 24-hour lookback horizon and processes missing steps in order"""
+	"""Evaluates the 7-day lookback horizon and processes all missing hours in order"""
 	current_utc = datetime.now(timezone.utc)
 	base_dt = current_utc.replace(minute=0, second=0, microsecond=0)
 
 	lookback_releases = []
-	for i in range(24, -1, -1):
+	for i in range(168, -1, -1):
 		dt = base_dt - timedelta(hours=i)
 		release_id = dt.strftime("%Y-%m-%d_%H00Z")
 		lookback_releases.append((dt, release_id))
@@ -179,14 +179,11 @@ async def run_engine(config, db_adapter, fetch_func, send_notify_func):
 		print("🏁 Processing pipeline is complete and up to date.")
 		return
 
-	is_test = config.get("test_mode", False)
-	successful_count = 0
-	max_successful = 3 if not is_test else len(unprocessed)
 	encountered_cves: set[str] = set()
+	failed_404: list[tuple[datetime, str]] = []
+	last_success_time: datetime | None = None
 
 	for dt, release_id in unprocessed:
-		if successful_count >= max_successful:
-			break
 		date_str = dt.strftime("%Y-%m-%d")
 		hour_str = dt.strftime("%H")
 
@@ -194,12 +191,17 @@ async def run_engine(config, db_adapter, fetch_func, send_notify_func):
 		zip_bytes = await fetch_func(url)
 
 		if zip_bytes is None:
-			print(
-				f"⚠️ Release data {release_id} not available yet (404). Will retry next run."
-			)
+			failed_404.append((dt, release_id))
 			continue
 
 		print(f"📦 Downloaded delta: {release_id}")
 		await process_zip_data(config, zip_bytes, db_adapter, send_notify_func, date_str, encountered_cves)
 		db_adapter.mark_diff_processed(release_id)
-		successful_count += 1
+		last_success_time = dt
+
+	# Mark 404s that occurred before a successful hour as permanently skipped
+	# since the delta for that hour will never be published
+	for dt, release_id in failed_404:
+		if last_success_time is not None and dt < last_success_time:
+			print(f"⏭️ Skipping {release_id}: no delta available (404) and later hours have been published")
+			db_adapter.mark_diff_processed(release_id)
