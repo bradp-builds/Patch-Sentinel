@@ -1,0 +1,37 @@
+name: Patch Sentinel
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # Every 12 hours
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run Patch Sentinel
+        run: python patch_sentinel.py
+        env:
+          PATCH_SENTINEL_PROVIDER: ${{ vars.PATCH_SENTINEL_PROVIDER || 'discord' }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MIN_SEVERITY_SCORE: ${{ vars.MIN_SEVERITY_SCORE }}
+          MONITORED_SOURCES: ${{ vars.MONITORED_SOURCES }}
+          TIMEZONE: ${{ vars.TIMEZONE }}
+          TEST_MODE: ${{ vars.TEST_MODE }}
+
+      - name: Update and commit database state
+        if: success()
+        run: |
+          git config user.name "patch-sentinel[bot]"
+          git config user.email "patch-sentinel[bot]@users.noreply.github.com"
+          git add -f local_db.sqlite
+          git diff --staged --quiet || git commit -m "Update state [skip ci]"
+          git push

@@ -18,9 +18,10 @@ def _load_config_from_env():
 				"webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", "")
 			}
 		},
+		"test_mode": os.environ.get("TEST_MODE", "").lower() == "true",
 		"timezone": os.environ.get("TIMEZONE", "UTC"),
 		"min_severity_score": float(os.environ["MIN_SEVERITY_SCORE"])
-		if "MIN_SEVERITY_SCORE" in os.environ
+		if "MIN_SEVERITY_SCORE" in os.environ and os.environ["MIN_SEVERITY_SCORE"].strip()
 		else None,
 		"monitored_sources": [],
 	}
@@ -163,7 +164,7 @@ def main():
 	)
 	args = parser.parse_args()
 	config = load_config(args.config)
-	config["test_mode"] = args.test
+	config["test_mode"] = args.test or config.get("test_mode", False)
 	asyncio.run(
 		cve_engine.run_engine(config, LocalDBAdapter(), local_fetch, local_notify)
 	)

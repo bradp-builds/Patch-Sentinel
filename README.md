@@ -8,14 +8,13 @@ Monitor CVE publications for your software stack and get alerted via Discord —
 - **Product matching** — Glob pattern matching (e.g. `nginx*`, `linux`) against `containers.cna.affected[].product` in the CVE JSON schema. Falls back to description text when no product fields exist.
 - **CVSS score filter** — Optional minimum severity threshold. CVEs with no CVSS score are **skipped** when a threshold is set.
 - **Rich notifications** — Formatted alerts via Discord embeds.
-- **Dual deployment modes** — Cloudflare Workers (production, env-var config) or local CLI runner (SQLite, YAML config) for testing.
-- **Test mode** — Run with `--test` to print alerts to stdout instead of firing webhooks.
-- **Safety cap** — Limits processing to 3 unprocessed hours by default; bypass with `-t`/`--test`.
+- **Flexible deployment modes** — Cloudflare Workers (production, D1), GitHub Actions (automated schedule, SQLite), or local CLI runner (SQLite, YAML/env config) for testing.
+- **Test mode** — Run with `--test` (or `TEST_MODE=true`) to print alerts to stdout instead of firing webhooks.
 
 ## Prerequisites
 
 - Python 3.x
-- For local CLI: `pyyaml` (`pip install pyyaml`)
+- For local YAML config CLI: `pyyaml` (`pip install pyyaml`)
 
 ## Installation
 
@@ -55,6 +54,24 @@ CREATE TABLE IF NOT EXISTS sent_notifications (
 
 The worker runs on a cron schedule (configured via Workers dashboard).
 
+### GitHub Actions
+
+Runs automatically on a schedule (default: hourly) or via manual trigger (`workflow_dispatch`).
+
+Configure the following Repository Secrets / Variables in GitHub settings (`Settings > Secrets and variables > Actions`):
+
+**Secrets:**
+- `DISCORD_WEBHOOK_URL`: Your Discord webhook URL
+
+**Variables:**
+- `PATCH_SENTINEL_PROVIDER`: Defaults to `"discord"`
+- `MIN_SEVERITY_SCORE`: Minimum CVSS threshold (e.g. `7.0`)
+- `MONITORED_SOURCES`: Newline- or comma-separated glob patterns (e.g. `nginx*,linux`)
+- `TIMEZONE`: e.g. `America/Detroit` (default: `UTC`)
+- `TEST_MODE`: Set to `true` to print alerts to action logs instead of sending webhooks
+
+The workflow runs `patch_sentinel.py` and automatically commits state changes (`local_db.sqlite`) back to the repository.
+
 ### Local CLI (testing)
 
 ```bash
@@ -72,7 +89,7 @@ PATCH_SENTINEL_PROVIDER=discord \
   MONITORED_SOURCES="linux,nginx*" \
   python3 patch_sentinel.py
 
-# Test mode (print alerts to stdout, bypass safety cap)
+# Test mode (print alerts to stdout)
 python3 patch_sentinel.py --test
 ```
 
