@@ -9,13 +9,21 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
+
+      - name: Cache & Restore SQLite State Database
+        uses: actions/cache@v6
+        with:
+          path: local_db.sqlite
+          key: patch-sentinel-db-${{ github.run_id }}
+          restore-keys: |
+            patch-sentinel-db-
 
       - name: Run Patch Sentinel
         run: python patch_sentinel.py
@@ -27,11 +35,3 @@ jobs:
           TIMEZONE: ${{ vars.TIMEZONE }}
           TEST_MODE: ${{ vars.TEST_MODE }}
 
-      - name: Update and commit database state
-        if: success()
-        run: |
-          git config user.name "patch-sentinel[bot]"
-          git config user.email "patch-sentinel[bot]@users.noreply.github.com"
-          git add -f local_db.sqlite
-          git diff --staged --quiet || git commit -m "Update state [skip ci]"
-          git push

@@ -70,7 +70,7 @@ Configure the following Repository Secrets / Variables in GitHub settings (`Sett
 - `TIMEZONE`: e.g. `America/Detroit` (default: `UTC`)
 - `TEST_MODE`: Set to `true` to print alerts to action logs instead of sending webhooks
 
-The workflow runs `patch_sentinel.py` and automatically commits state changes (`local_db.sqlite`) back to the repository.
+The workflow runs `patch_sentinel.py` and uses GitHub Actions Cache (`actions/cache`) to persist state (`local_db.sqlite`) across runs without committing to the repository.
 
 ### Local CLI (testing)
 
