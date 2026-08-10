@@ -106,7 +106,7 @@ def send_notification(config: dict, cve_id: str, product: str, severity: str, de
 		)
 		return
 
-	url = config.get("providers", {}).get("discord", {}).get("webhook_url", "")
+	url = config.get("discord_webhook_url") or config.get("providers", {}).get("discord", {}).get("webhook_url", "")
 	if not url:
 		print(f"⚠️ No webhook URL configured for {cve_id}", file=sys.stderr)
 		return
@@ -302,12 +302,7 @@ def run_pipeline(config: dict, db: Database):
 
 def _load_config_from_env():
 	config = {
-		"notification_provider": "discord",
-		"providers": {
-			"discord": {
-				"webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", "")
-			}
-		},
+		"discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", ""),
 		"test_mode": os.environ.get("TEST_MODE", "").lower() == "true",
 		"timezone": os.environ.get("TIMEZONE", "UTC"),
 		"min_severity_score": float(os.environ["MIN_SEVERITY_SCORE"])
@@ -324,12 +319,7 @@ def _load_config_from_env():
 
 
 def load_config(config_path=None):
-	if "PATCH_SENTINEL_PROVIDER" in os.environ:
-		provider = os.environ["PATCH_SENTINEL_PROVIDER"]
-		if provider != "discord":
-			sys.exit(
-				f"❌ PATCH_SENTINEL_PROVIDER must be 'discord'. Got '{provider}'. Slack support has been removed."
-			)
+	if "DISCORD_WEBHOOK_URL" in os.environ:
 		return _load_config_from_env()
 	config_path = (
 		config_path or os.environ.get("PATCH_SENTINEL_CONFIG") or "config.yaml"
@@ -338,9 +328,13 @@ def load_config(config_path=None):
 		import yaml
 
 		with open(config_path, "r") as f:
-			cfg = yaml.safe_load(f)
+			cfg = yaml.safe_load(f) or {}
 		if "timezone" not in cfg:
 			cfg["timezone"] = "UTC"
+		if "discord_webhook_url" not in cfg and "providers" in cfg:
+			cfg["discord_webhook_url"] = (
+				cfg.get("providers", {}).get("discord", {}).get("webhook_url", "")
+			)
 		return cfg
 	except Exception as e:
 		sys.exit(f"❌ Failed loading config path '{config_path}': {e}")

@@ -35,7 +35,6 @@ Configure the following Repository Secrets / Variables in GitHub settings (`Sett
 - `DISCORD_WEBHOOK_URL`: Your Discord webhook URL
 
 **Variables:**
-- `PATCH_SENTINEL_PROVIDER`: Defaults to `"discord"`
 - `MIN_SEVERITY_SCORE`: Minimum CVSS threshold (e.g. `7.0`)
 - `MONITORED_SOURCES`: Newline- or comma-separated glob patterns (e.g. `nginx*,linux`)
 - `TIMEZONE`: e.g. `America/Detroit` (default: `UTC`)
@@ -55,8 +54,7 @@ python3 patch_sentinel.py
 python3 patch_sentinel.py --config path/to/config.yaml
 
 # Env-var mode
-PATCH_SENTINEL_PROVIDER=discord \
-  DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
   MONITORED_SOURCES="linux,nginx*" \
   python3 patch_sentinel.py
 

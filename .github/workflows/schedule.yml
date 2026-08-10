@@ -28,7 +28,6 @@ jobs:
       - name: Run Patch Sentinel
         run: python patch_sentinel.py
         env:
-          PATCH_SENTINEL_PROVIDER: ${{ vars.PATCH_SENTINEL_PROVIDER || 'discord' }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MIN_SEVERITY_SCORE: ${{ vars.MIN_SEVERITY_SCORE }}
           MONITORED_SOURCES: ${{ vars.MONITORED_SOURCES }}
