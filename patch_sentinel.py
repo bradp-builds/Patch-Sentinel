@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-import os
-import sys
-import json
-import sqlite3
-import zipfile
-import io
 import fnmatch
-import urllib.request
+import io
+import json
+import os
+import sqlite3
+import sys
 import urllib.error
-from datetime import datetime, timezone, timedelta
+import urllib.request
+import zipfile
+from datetime import datetime, timedelta, timezone
 
 
 class Database:
@@ -66,7 +66,7 @@ def get_local_date(tz_name="UTC"):
 		from zoneinfo import ZoneInfo
 
 		return utc_now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
-	except Exception:
+	except (ImportError, KeyError, ValueError):
 		# Resilient fallback for edge environments lacking standard tzdata packages
 		offset_hours = -4  # Default to Eastern Daylight Time (EDT)
 		if "detroit" in tz_name.lower() or "eastern" in tz_name.lower():
@@ -93,7 +93,7 @@ def fetch_url(url: str) -> bytes | None:
 			return None
 		print(f"⚠️ GitHub release returned status {e.code}")
 		return None
-	except Exception as e:
+	except (urllib.error.URLError, TimeoutError, OSError) as e:
 		print(f"❌ Fetch error for {url}: {e}")
 		return None
 
@@ -135,7 +135,7 @@ def send_notification(config: dict, cve_id: str, product: str, severity: str, de
 		)
 		urllib.request.urlopen(req, timeout=30)
 		print(f"✅ Alert distributed for {cve_id}")
-	except Exception as e:
+	except (urllib.error.URLError, TimeoutError, OSError) as e:
 		print(f"❌ Notification runtime fail for {cve_id}: {e}", file=sys.stderr)
 
 
@@ -246,8 +246,11 @@ def process_zip_data(config: dict, zip_bytes: bytes, db: Database, zip_date_str:
 				else:
 					print(f"⏭️ Skipping {cve_id} ({original_name}): doesn't match any monitored products")
 
-			except Exception as e:
+			except (json.JSONDecodeError, KeyError, TypeError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as e:
 				print(f"⚠️ Parsing error on {cve_id}: {e}")
+				continue
+			except Exception as e:  # noqa: BLE001
+				print(f"⚠️ Unexpected error on {cve_id}: {e}")
 				continue
 
 
@@ -326,7 +329,10 @@ def load_config(config_path=None):
 	)
 	try:
 		import yaml
+	except ImportError as e:
+		sys.exit(f"❌ Failed loading config: PyYAML is required when using YAML config ({e})")
 
+	try:
 		with open(config_path, "r") as f:
 			cfg = yaml.safe_load(f) or {}
 		if "timezone" not in cfg:
@@ -336,7 +342,7 @@ def load_config(config_path=None):
 				cfg.get("providers", {}).get("discord", {}).get("webhook_url", "")
 			)
 		return cfg
-	except Exception as e:
+	except (OSError, ValueError, yaml.YAMLError) as e:
 		sys.exit(f"❌ Failed loading config path '{config_path}': {e}")
 
 
@@ -354,7 +360,10 @@ def main():
 	config = load_config(args.config)
 	config["test_mode"] = args.test or config.get("test_mode", False)
 	db = Database()
-	run_pipeline(config, db)
+	try:
+		run_pipeline(config, db)
+	except Exception as e:  # noqa: BLE001
+		sys.exit(f"❌ Fatal execution failure in Patch Sentinel: {e}")
 
 
 if __name__ == "__main__":
