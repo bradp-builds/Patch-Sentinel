@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Patch Sentinel — Scrapes CVEProject/cvelistV5 hourly delta releases, matches products,
+filters by CVSS score, and fires Discord webhook notifications.
+"""
+
+from __future__ import annotations
+
 import fnmatch
 import io
 import json
@@ -9,57 +15,97 @@ import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta, timezone
+from typing import Any
+
+# Module Constants
+DEFAULT_DB_PATH = "local_db.sqlite"
+LOOKBACK_HOURS = 168
+HTTP_TIMEOUT_SECONDS = 30
+USER_AGENT = "PatchSentinel/1.0"
+CVE_DELTA_URL_TEMPLATE = (
+	"https://github.com/CVEProject/cvelistV5/releases/download/"
+	"cve_{date}_{hour}00Z/{date}_delta_CVEs_at_{hour}00Z.zip"
+)
 
 
 class Database:
 	"""SQLite3 database manager for tracking processed releases and notifications."""
 
-	def __init__(self, db_path="local_db.sqlite"):
+	def __init__(self, db_path: str = DEFAULT_DB_PATH):
 		self.db_path = db_path
-		with sqlite3.connect(self.db_path) as conn:
-			conn.execute(
-				"CREATE TABLE IF NOT EXISTS processed_diffs (release_id TEXT PRIMARY KEY, processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+		self._conn = sqlite3.connect(self.db_path)
+		self._init_db()
+
+	def _init_db(self):
+		with self._conn:
+			self._conn.execute(
+				"CREATE TABLE IF NOT EXISTS processed_diffs ("
+				"release_id TEXT PRIMARY KEY, "
+				"processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
 			)
-			conn.execute(
-				"CREATE TABLE IF NOT EXISTS sent_notifications (cve_id TEXT, local_date TEXT, notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (cve_id, local_date));"
+			self._conn.execute(
+				"CREATE TABLE IF NOT EXISTS sent_notifications ("
+				"cve_id TEXT, local_date TEXT, "
+				"notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+				"PRIMARY KEY (cve_id, local_date));"
 			)
-			conn.commit()
 
 	def is_diff_processed(self, release_id: str) -> bool:
-		with sqlite3.connect(self.db_path) as conn:
-			return (
-				conn.execute(
-					"SELECT 1 FROM processed_diffs WHERE release_id = ?", (release_id,)
-				).fetchone()
-				is not None
-			)
+		cursor = self._conn.execute(
+			"SELECT 1 FROM processed_diffs WHERE release_id = ?", (release_id,)
+		)
+		return cursor.fetchone() is not None
 
 	def mark_diff_processed(self, release_id: str):
-		with sqlite3.connect(self.db_path) as conn:
-			conn.execute(
+		with self._conn:
+			self._conn.execute(
 				"INSERT OR IGNORE INTO processed_diffs (release_id) VALUES (?)",
 				(release_id,),
 			)
 
 	def has_notified_today(self, cve_id: str, local_date: str) -> bool:
-		with sqlite3.connect(self.db_path) as conn:
-			return (
-				conn.execute(
-					"SELECT 1 FROM sent_notifications WHERE cve_id = ? AND local_date = ?",
-					(cve_id, local_date),
-				).fetchone()
-				is not None
-			)
+		cursor = self._conn.execute(
+			"SELECT 1 FROM sent_notifications WHERE cve_id = ? AND local_date = ?",
+			(cve_id, local_date),
+		)
+		return cursor.fetchone() is not None
 
 	def record_notification(self, cve_id: str, local_date: str):
-		with sqlite3.connect(self.db_path) as conn:
-			conn.execute(
+		with self._conn:
+			self._conn.execute(
 				"INSERT OR IGNORE INTO sent_notifications (cve_id, local_date) VALUES (?, ?)",
 				(cve_id, local_date),
 			)
 
+	def cleanup_old_records(self, days: int = 7):
+		"""Deletes entries older than `days` from processed_diffs and sent_notifications."""
+		cutoff_dt = datetime.now(timezone.utc) - timedelta(days=days)
+		cutoff_date = cutoff_dt.strftime("%Y-%m-%d")
+		cutoff_release_id = cutoff_dt.strftime("%Y-%m-%d_%H00Z")
+		cutoff_timestamp = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-def get_local_date(tz_name="UTC"):
+		with self._conn:
+			self._conn.execute(
+				"DELETE FROM processed_diffs WHERE processed_at < ? OR release_id < ?",
+				(cutoff_timestamp, cutoff_release_id),
+			)
+			self._conn.execute(
+				"DELETE FROM sent_notifications WHERE notified_at < ? OR local_date < ?",
+				(cutoff_timestamp, cutoff_date),
+			)
+
+	def close(self):
+		if self._conn:
+			self._conn.close()
+
+	def __enter__(self) -> Database:
+		return self
+
+	def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any):
+		self.close()
+
+
+def get_local_date(tz_name: str = "UTC") -> str:
 	"""Calculates the recipient's localized calendar day string (YYYY-MM-DD)."""
 	utc_now = datetime.now(timezone.utc)
 	try:
@@ -67,26 +113,14 @@ def get_local_date(tz_name="UTC"):
 
 		return utc_now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
 	except (ImportError, KeyError, ValueError):
-		# Resilient fallback for edge environments lacking standard tzdata packages
-		offset_hours = -4  # Default to Eastern Daylight Time (EDT)
-		if "detroit" in tz_name.lower() or "eastern" in tz_name.lower():
-			offset_hours = -4
-		elif "central" in tz_name.lower():
-			offset_hours = -5
-		elif "mountain" in tz_name.lower():
-			offset_hours = -6
-		elif "pacific" in tz_name.lower():
-			offset_hours = -7
-		elif "utc" in tz_name.lower():
-			offset_hours = 0
-		return (utc_now + timedelta(hours=offset_hours)).strftime("%Y-%m-%d")
+		return utc_now.strftime("%Y-%m-%d")
 
 
 def fetch_url(url: str) -> bytes | None:
 	"""Fetches data from URL using standard urllib. Returns bytes or None if 404/error."""
 	try:
-		req = urllib.request.Request(url, headers={"User-Agent": "PatchSentinel/1.0"})
-		with urllib.request.urlopen(req, timeout=30) as res:
+		req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+		with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as res:
 			return res.read()
 	except urllib.error.HTTPError as e:
 		if e.code == 404:
@@ -98,19 +132,24 @@ def fetch_url(url: str) -> bytes | None:
 		return None
 
 
-def send_notification(config: dict, cve_id: str, product: str, severity: str, desc: str):
-	"""Sends Discord webhook notification or prints alert in test mode."""
+def send_notification(
+	config: dict[str, Any], cve_id: str, product: str, severity: str, desc: str
+) -> bool:
+	"""Sends Discord webhook notification or prints alert in test mode. Returns True if delivery succeeded."""
 	if config.get("test_mode", False):
 		print(
 			f"[TEST MODE] Alerting for {cve_id} | Product: {product} | Severity: {severity}\nSummary: {desc[:100]}...\n"
 		)
-		return
+		return True
 
-	url = config.get("discord_webhook_url") or config.get("providers", {}).get("discord", {}).get("webhook_url", "")
+	url = config.get("discord_webhook_url") or config.get("providers", {}).get(
+		"discord", {}
+	).get("webhook_url", "")
 	if not url:
 		print(f"⚠️ No webhook URL configured for {cve_id}", file=sys.stderr)
-		return
+		return False
 
+	desc_field = (desc[:1020] + "...") if len(desc) > 1024 else desc
 	payload = {
 		"embeds": [
 			{
@@ -119,7 +158,7 @@ def send_notification(config: dict, cve_id: str, product: str, severity: str, de
 				"fields": [
 					{"name": "Impacted Software", "value": product, "inline": True},
 					{"name": "Severity", "value": severity, "inline": True},
-					{"name": "Description", "value": desc},
+					{"name": "Description", "value": desc_field},
 				],
 			}
 		]
@@ -130,16 +169,81 @@ def send_notification(config: dict, cve_id: str, product: str, severity: str, de
 			data=json.dumps(payload).encode("utf-8"),
 			headers={
 				"Content-Type": "application/json",
-				"User-Agent": "PatchSentinel/1.0",
+				"User-Agent": USER_AGENT,
 			},
 		)
-		urllib.request.urlopen(req, timeout=30)
+		urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS)
 		print(f"✅ Alert distributed for {cve_id}")
+		return True
 	except (urllib.error.URLError, TimeoutError, OSError) as e:
 		print(f"❌ Notification runtime fail for {cve_id}: {e}", file=sys.stderr)
+		return False
 
 
-def process_zip_data(config: dict, zip_bytes: bytes, db: Database, zip_date_str: str, encountered_cves: set):
+def extract_cve_metrics(metrics: list[Any]) -> tuple[float | None, str]:
+	"""Extracts base score float and formatted severity string from CNA metrics list."""
+	base_score = None
+	severity = "Unknown"
+	for metric in metrics:
+		if not isinstance(metric, dict):
+			continue
+		for version in ["cvssV4_0", "cvssV3_1", "cvssV3_0"]:
+			if version in metric and isinstance(metric[version], dict):
+				raw_score = metric[version].get("baseScore")
+				if raw_score is not None:
+					try:
+						base_score = float(raw_score)
+					except (ValueError, TypeError):
+						base_score = None
+					base_sev = metric[version].get("baseSeverity", "Unknown")
+					severity = f"{base_sev} ({base_score if base_score is not None else 'N/A'})"
+					break
+		if base_score is not None:
+			break
+	return base_score, severity
+
+
+def match_monitored_product(
+	affected_nodes: list[Any], desc_text: str, monitored_sources: list[str]
+) -> tuple[bool, str, str]:
+	"""Evaluates affected products against glob patterns and falls back to description substring search."""
+	matched = False
+	matched_product = ""
+	had_product = False
+	original_name = "UNKNOWN"
+
+	for node in affected_nodes:
+		if not isinstance(node, dict):
+			continue
+		original_name = str(node.get("product", "") or "")
+		if original_name:
+			had_product = True
+			if any(
+				fnmatch.fnmatch(original_name.lower(), pat.lower())
+				for pat in monitored_sources
+			):
+				matched = True
+				matched_product = original_name
+				break
+
+	if not matched and not had_product:
+		for pattern in monitored_sources:
+			clean_pattern = pattern.replace("*", "").replace("?", "").strip()
+			if clean_pattern and clean_pattern.lower() in desc_text.lower():
+				matched = True
+				matched_product = pattern
+				break
+
+	return matched, matched_product, original_name
+
+
+def process_zip_data(
+	config: dict[str, Any],
+	zip_bytes: bytes,
+	db: Database,
+	zip_date_str: str,
+	encountered_cves: set[str],
+):
 	"""Unzips, scans delta logs, filters by product patterns/CVSS score, and fires notifications."""
 	monitored_sources = config.get("monitored_sources", [])
 
@@ -170,9 +274,6 @@ def process_zip_data(config: dict, zip_bytes: bytes, db: Database, zip_date_str:
 
 			try:
 				cve_record = json.loads(zf.read(filepath))
-				date_published = cve_record.get("cveMetadata", {}).get("datePublished")
-				if not date_published or date_published[:10] != zip_date_str:
-					continue
 
 				if cve_id in encountered_cves:
 					continue
@@ -185,33 +286,13 @@ def process_zip_data(config: dict, zip_bytes: bytes, db: Database, zip_date_str:
 
 				desc_text = (
 					descriptions[0].get("value", "No description provided")
-					if descriptions
+					if descriptions and isinstance(descriptions[0], dict)
 					else "No description provided"
 				)
 
-				matched = False
-				matched_product = ""
-				had_product = False
-				original_name = "UNKNOWN"
-				for node in affected_nodes:
-					original_name = str(node.get("product", "") or "")
-					if original_name:
-						had_product = True
-						if any(
-							fnmatch.fnmatch(original_name.lower(), pat.lower())
-							for pat in monitored_sources
-						):
-							matched = True
-							matched_product = original_name
-							break
-
-				if not matched and not had_product:
-					# Fallback uses substring search (not glob) against description text
-					for pattern in monitored_sources:
-						if pattern.lower() in desc_text.lower():
-							matched = True
-							matched_product = pattern
-							break
+				matched, matched_product, original_name = match_monitored_product(
+					affected_nodes, desc_text, monitored_sources
+				)
 
 				if matched:
 					if db.has_notified_today(cve_id, local_date_str):
@@ -220,33 +301,43 @@ def process_zip_data(config: dict, zip_bytes: bytes, db: Database, zip_date_str:
 						)
 						continue
 
-					base_score = None
-					severity = "Unknown"
-					for metric in metrics:
-						for version in ["cvssV4_0", "cvssV3_1", "cvssV3_0"]:
-							if version in metric:
-								base_score = metric[version].get("baseScore")
-								severity = f"{metric[version].get('baseSeverity', 'Unknown')} ({base_score or 'N/A'})"
-								break
-						if base_score is not None:
-							break
+					base_score, severity = extract_cve_metrics(metrics)
 
 					min_score = config.get("min_severity_score")
-					if min_score is not None and (base_score is None or base_score < min_score):
+					min_score_float = None
+					if min_score is not None:
+						try:
+							min_score_float = float(min_score)
+						except (ValueError, TypeError):
+							min_score_float = None
+
+					if min_score_float is not None and (
+						base_score is None or base_score < min_score_float
+					):
 						print(
-							f"⏭️ Skipping {cve_id} ({matched_product}): below minimum severity score (score={base_score}, min={min_score})"
+							f"⏭️ Skipping {cve_id} ({matched_product}): below minimum severity score (score={base_score}, min={min_score_float})"
 						)
 						continue
 
 					print(f"🔔 Notifying about {cve_id} ({matched_product})")
-					send_notification(
+					success = send_notification(
 						config, cve_id, matched_product, severity, desc_text
 					)
-					db.record_notification(cve_id, local_date_str)
+					if success:
+						db.record_notification(cve_id, local_date_str)
 				else:
-					print(f"⏭️ Skipping {cve_id} ({original_name}): doesn't match any monitored products")
+					print(
+						f"⏭️ Skipping {cve_id} ({original_name}): doesn't match any monitored products"
+					)
 
-			except (json.JSONDecodeError, KeyError, TypeError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as e:
+			except (
+				json.JSONDecodeError,
+				KeyError,
+				TypeError,
+				ValueError,
+				zipfile.BadZipFile,
+				UnicodeDecodeError,
+			) as e:
 				print(f"⚠️ Parsing error on {cve_id}: {e}")
 				continue
 			except Exception as e:  # noqa: BLE001
@@ -254,13 +345,15 @@ def process_zip_data(config: dict, zip_bytes: bytes, db: Database, zip_date_str:
 				continue
 
 
-def run_pipeline(config: dict, db: Database):
+def run_pipeline(config: dict[str, Any], db: Database):
 	"""Evaluates the 7-day lookback horizon and processes all missing hours in order."""
+	db.cleanup_old_records(days=7)
 	current_utc = datetime.now(timezone.utc)
+
 	base_dt = current_utc.replace(minute=0, second=0, microsecond=0)
 
 	lookback_releases = []
-	for i in range(168, -1, -1):
+	for i in range(LOOKBACK_HOURS, -1, -1):
 		dt = base_dt - timedelta(hours=i)
 		release_id = dt.strftime("%Y-%m-%d_%H00Z")
 		lookback_releases.append((dt, release_id))
@@ -283,7 +376,7 @@ def run_pipeline(config: dict, db: Database):
 		date_str = dt.strftime("%Y-%m-%d")
 		hour_str = dt.strftime("%H")
 
-		url = f"https://github.com/CVEProject/cvelistV5/releases/download/cve_{date_str}_{hour_str}00Z/{date_str}_delta_CVEs_at_{hour_str}00Z.zip"
+		url = CVE_DELTA_URL_TEMPLATE.format(date=date_str, hour=hour_str)
 		zip_bytes = fetch_url(url)
 
 		if zip_bytes is None:
@@ -296,44 +389,61 @@ def run_pipeline(config: dict, db: Database):
 		last_success_time = dt
 
 	# Mark 404s that occurred before a successful hour as permanently skipped
-	# since the delta for that hour will never be published
 	for dt, release_id in failed_404:
 		if last_success_time is not None and dt < last_success_time:
-			print(f"⏭️ Skipping {release_id}: no delta available (404) and later hours have been published")
+			print(
+				f"⏭️ Skipping {release_id}: no delta available (404) and later hours have been published"
+			)
 			db.mark_diff_processed(release_id)
 
 
-def _load_config_from_env():
+def _normalize_sources(sources_input: Any) -> list[str]:
+	if isinstance(sources_input, str):
+		sources_list = []
+		for line in sources_input.splitlines():
+			for part in line.split(","):
+				if part.strip():
+					sources_list.append(part.strip())
+		return sources_list
+	elif isinstance(sources_input, list):
+		return [str(s).strip() for s in sources_input if str(s).strip()]
+	return []
+
+
+def _load_config_from_env() -> dict[str, Any]:
+	min_sev = os.environ.get("MIN_SEVERITY_SCORE", "").strip()
+	try:
+		min_score = float(min_sev) if min_sev else None
+	except ValueError:
+		min_score = None
+
 	config = {
 		"discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", ""),
 		"test_mode": os.environ.get("TEST_MODE", "").lower() == "true",
 		"timezone": os.environ.get("TIMEZONE", "UTC"),
-		"min_severity_score": float(os.environ["MIN_SEVERITY_SCORE"])
-		if "MIN_SEVERITY_SCORE" in os.environ and os.environ["MIN_SEVERITY_SCORE"].strip()
-		else None,
-		"monitored_sources": [],
+		"min_severity_score": min_score,
+		"monitored_sources": _normalize_sources(os.environ.get("MONITORED_SOURCES", "")),
 	}
-	sources = os.environ.get("MONITORED_SOURCES", "")
-	for line in sources.splitlines():
-		for part in line.split(","):
-			if part.strip():
-				config["monitored_sources"].append(part.strip())
 	return config
 
 
-def load_config(config_path=None):
-	if "DISCORD_WEBHOOK_URL" in os.environ:
+def load_config(config_path: str | None = None) -> dict[str, Any]:
+	if config_path:
+		target_path = config_path
+	elif "PATCH_SENTINEL_CONFIG" in os.environ:
+		target_path = os.environ["PATCH_SENTINEL_CONFIG"]
+	elif "DISCORD_WEBHOOK_URL" in os.environ:
 		return _load_config_from_env()
-	config_path = (
-		config_path or os.environ.get("PATCH_SENTINEL_CONFIG") or "config.yaml"
-	)
+	else:
+		target_path = "config.yaml"
+
 	try:
 		import yaml
 	except ImportError as e:
 		sys.exit(f"❌ Failed loading config: PyYAML is required when using YAML config ({e})")
 
 	try:
-		with open(config_path, "r") as f:
+		with open(target_path, "r") as f:
 			cfg = yaml.safe_load(f) or {}
 		if "timezone" not in cfg:
 			cfg["timezone"] = "UTC"
@@ -341,9 +451,15 @@ def load_config(config_path=None):
 			cfg["discord_webhook_url"] = (
 				cfg.get("providers", {}).get("discord", {}).get("webhook_url", "")
 			)
+		cfg["monitored_sources"] = _normalize_sources(cfg.get("monitored_sources", []))
+		if cfg.get("min_severity_score") is not None:
+			try:
+				cfg["min_severity_score"] = float(cfg["min_severity_score"])
+			except (ValueError, TypeError):
+				cfg["min_severity_score"] = None
 		return cfg
 	except (OSError, ValueError, yaml.YAMLError) as e:
-		sys.exit(f"❌ Failed loading config path '{config_path}': {e}")
+		sys.exit(f"❌ Failed loading config path '{target_path}': {e}")
 
 
 def main():
@@ -354,16 +470,20 @@ def main():
 		"--config", help="Explicit configuration yaml layout override file."
 	)
 	parser.add_argument(
-		"-t", "--test", action="store_true", help="Enable test mode (print alerts instead of sending webhooks)"
+		"-t",
+		"--test",
+		action="store_true",
+		help="Enable test mode (print alerts instead of sending webhooks)",
 	)
 	args = parser.parse_args()
 	config = load_config(args.config)
 	config["test_mode"] = args.test or config.get("test_mode", False)
-	db = Database()
-	try:
-		run_pipeline(config, db)
-	except Exception as e:  # noqa: BLE001
-		sys.exit(f"❌ Fatal execution failure in Patch Sentinel: {e}")
+
+	with Database() as db:
+		try:
+			run_pipeline(config, db)
+		except Exception as e:  # noqa: BLE001
+			sys.exit(f"❌ Fatal execution failure in Patch Sentinel: {e}")
 
 
 if __name__ == "__main__":
