@@ -9,6 +9,7 @@ import fnmatch
 import io
 import json
 import os
+import re
 import sqlite3
 import sys
 import urllib.error
@@ -27,6 +28,23 @@ CVE_DELTA_URL_TEMPLATE = (
     "https://github.com/CVEProject/cvelistV5/releases/download/"
     "cve_{date}_{hour}00Z/{date}_delta_CVEs_at_{hour}00Z.zip"
 )
+
+DISCORD_WEBHOOK_REGEX = re.compile(
+    r"https?://[^\s\"']*/api/webhooks/[^\s\"']+|/api/webhooks/[^\s\"']+",
+    re.IGNORECASE,
+)
+
+
+def sanitize_log(msg: Any, secret_url: str = "") -> str:
+    """Sanitizes sensitive information (like Discord webhook URLs or path tokens) from log messages."""
+    text = str(msg)
+    if secret_url:
+        stripped_secret = secret_url.strip()
+        if stripped_secret:
+            text = text.replace(stripped_secret, "[REDACTED_WEBHOOK_URL]")
+        text = text.replace(secret_url, "[REDACTED_WEBHOOK_URL]")
+    return DISCORD_WEBHOOK_REGEX.sub("[REDACTED_WEBHOOK_URL]", text)
+
 
 
 class Database:
@@ -148,9 +166,10 @@ def send_notification(
         )
         return True
 
-    url = config.get("discord_webhook_url") or config.get("providers", {}).get(
+    raw_url = config.get("discord_webhook_url") or config.get("providers", {}).get(
         "discord", {}
     ).get("webhook_url", "")
+    url = str(raw_url).strip() if raw_url else ""
     if not url:
         print(f"⚠️ No webhook URL configured for {cve_id}", file=sys.stderr)
         return False
@@ -181,8 +200,9 @@ def send_notification(
         urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS)
         print(f"✅ Alert distributed for {cve_id}")
         return True
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        print(f"❌ Notification runtime fail for {cve_id}: {e}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        safe_msg = sanitize_log(e, secret_url=url)
+        print(f"❌ Notification runtime fail for {cve_id}: {safe_msg}", file=sys.stderr)
         return False
 
 
@@ -344,10 +364,12 @@ def process_zip_data(
                 zipfile.BadZipFile,
                 UnicodeDecodeError,
             ) as e:
-                print(f"⚠️ Parsing error on {cve_id}: {e}")
+                safe_err = sanitize_log(e, secret_url=config.get("discord_webhook_url", ""))
+                print(f"⚠️ Parsing error on {cve_id}: {safe_err}")
                 continue
             except Exception as e:  # noqa: BLE001
-                print(f"⚠️ Unexpected error on {cve_id}: {e}")
+                safe_err = sanitize_log(e, secret_url=config.get("discord_webhook_url", ""))
+                print(f"⚠️ Unexpected error on {cve_id}: {safe_err}")
                 continue
 
 
@@ -422,7 +444,7 @@ def _load_config_from_env() -> dict[str, Any]:
         min_score = None
 
     config = {
-        "discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", ""),
+        "discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", "").strip(),
         "test_mode": os.environ.get("TEST_MODE", "").lower() == "true",
         "timezone": os.environ.get("TIMEZONE", "UTC"),
         "min_severity_score": min_score,
@@ -459,6 +481,8 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
             cfg["discord_webhook_url"] = (
                 cfg.get("providers", {}).get("discord", {}).get("webhook_url", "")
             )
+        if cfg.get("discord_webhook_url"):
+            cfg["discord_webhook_url"] = str(cfg["discord_webhook_url"]).strip()
         cfg["monitored_sources"] = _normalize_sources(cfg.get("monitored_sources", []))
         if cfg.get("min_severity_score") is not None:
             try:
@@ -467,7 +491,8 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
                 cfg["min_severity_score"] = None
         return cfg
     except (OSError, ValueError, yaml.YAMLError) as e:
-        sys.exit(f"❌ Failed loading config path '{target_path}': {e}")
+        safe_err = sanitize_log(e)
+        sys.exit(f"❌ Failed loading config path '{target_path}': {safe_err}")
 
 
 def main():
@@ -491,7 +516,8 @@ def main():
         try:
             run_pipeline(config, db)
         except Exception as e:  # noqa: BLE001
-            sys.exit(f"❌ Fatal execution failure in Patch Sentinel: {e}")
+            safe_err = sanitize_log(e, secret_url=config.get("discord_webhook_url", ""))
+            sys.exit(f"❌ Fatal execution failure in Patch Sentinel: {safe_err}")
 
 
 if __name__ == "__main__":
