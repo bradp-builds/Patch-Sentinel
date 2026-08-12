@@ -15,7 +15,8 @@ import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
 # Module Constants
 DEFAULT_DB_PATH = "local_db.sqlite"
@@ -98,10 +99,15 @@ class Database:
         if self._conn:
             self._conn.close()
 
-    def __enter__(self) -> Database:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.close()
 
 
