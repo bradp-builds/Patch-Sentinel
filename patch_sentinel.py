@@ -15,7 +15,7 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import TracebackType
 from typing import Any, Self
 
@@ -293,6 +293,12 @@ def process_zip_data(
         }
         local_date_str = get_local_date(config.get("timezone", "UTC"))
 
+        try:
+            zip_dt = date.fromisoformat(zip_date_str)
+            min_pub_date_str = (zip_dt - timedelta(days=1)).isoformat()
+        except ValueError:
+            min_pub_date_str = zip_date_str
+
         for cve_id in sorted(target_cves):
             filepath = cve_path_map.get(cve_id)
             if not filepath:
@@ -304,6 +310,16 @@ def process_zip_data(
                 if cve_id in encountered_cves:
                     continue
                 encountered_cves.add(cve_id)
+
+                cve_meta = cve_record.get("cveMetadata", {})
+                pub_date_raw = str(cve_meta.get("datePublished", "") or "")
+                if pub_date_raw:
+                    pub_date = pub_date_raw.split("T")[0]
+                    if len(pub_date) == 10 and pub_date < min_pub_date_str:
+                        print(
+                            f"⏭️ Skipping {cve_id}: published date ({pub_date}) precedes diff date window (diff date: {zip_date_str})"
+                        )
+                        continue
 
                 cna = cve_record.get("containers", {}).get("cna", {})
                 affected_nodes = cna.get("affected", [])
