@@ -19,6 +19,45 @@ from datetime import date, datetime, timedelta, timezone
 from types import TracebackType
 from typing import Any, Self
 
+
+def log_entry(
+    icon: str,
+    status: str,
+    cve_id: str = "",
+    severity: str = "",
+    program_name: str = "",
+    date_published: str | None = None,
+    *,
+    extra: str = "",
+    err: bool = False,
+) -> None:
+    """Print a structured log line.
+    * `icon` – Emoji or symbol.
+    * `status` – Upper‑case description of the action.
+    * `cve_id`, `severity`, `program_name`, `date_published` – Optional CVE‑specific fields.
+    * `extra` – Additional free‑form text.
+    * `err` – When True, send to stderr.
+    """
+    if cve_id:
+        parts = [
+            icon,
+            status.upper(),
+            date_published or "",
+            cve_id,
+            severity,
+            program_name,
+            extra,
+        ]
+        line = " | ".join(parts)
+    else:
+        # When there is no CVE ID, we still want to display the status and any extra info.
+        parts = [icon, status.upper()]
+        if extra:
+            parts.append(extra)
+        line = " | ".join(parts)
+    print(line, file=sys.stderr if err else sys.stdout)
+
+
 # Module Constants
 DEFAULT_DB_PATH = "local_db.sqlite"
 LOOKBACK_HOURS = 168
@@ -44,7 +83,6 @@ def sanitize_log(msg: Any, secret_url: str = "") -> str:
             text = text.replace(stripped_secret, "[REDACTED_WEBHOOK_URL]")
         text = text.replace(secret_url, "[REDACTED_WEBHOOK_URL]")
     return DISCORD_WEBHOOK_REGEX.sub("[REDACTED_WEBHOOK_URL]", text)
-
 
 
 class Database:
@@ -149,20 +187,29 @@ def fetch_url(url: str) -> bytes | None:
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return None
-        print(f"⚠️ GitHub release returned status {e.code}")
+        log_entry("⚠️", "GITHUB RELEASE ERROR", extra=f"status {e.code}", err=True)
         return None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
-        print(f"❌ Fetch error for {url}: {e}")
+        log_entry("❌", "FETCH ERROR", extra=f"{url}: {e}", err=True)
         return None
 
 
 def send_notification(
-    config: dict[str, Any], cve_id: str, product: str, severity: str, desc: str
+    config: dict[str, Any], cve_id: str, product: str, severity: str, desc: str, date_published: str
 ) -> bool:
     """Sends Discord webhook notification or prints alert in test mode. Returns True if delivery succeeded."""
     if config.get("test_mode", False):
-        print(
-            f"[TEST MODE] Alerting for {cve_id} | Product: {product} | Severity: {severity}\nSummary: {desc[:100]}...\n"
+        # For test mode we want a full, correctly ordered log line:
+        # ICON | STATUS | DATE | ID | SEVERITY | PRODUCT | EXTRA
+        log_entry(
+            "✅",
+            "TEST ALERT",
+            cve_id,
+            severity,
+            product,
+            date_published=date_published,
+            extra=f"Summary: {desc[:100]}...",
+            err=False,
         )
         return True
 
@@ -171,7 +218,7 @@ def send_notification(
     ).get("webhook_url", "")
     url = str(raw_url).strip() if raw_url else ""
     if not url:
-        print(f"⚠️ No webhook URL configured for {cve_id}", file=sys.stderr)
+        log_entry("⚠️", "MISSING WEBHOOK", cve_id=cve_id, err=True)
         return False
 
     desc_field = (desc[:1020] + "...") if len(desc) > 1024 else desc
@@ -198,18 +245,20 @@ def send_notification(
             },
         )
         urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS)
-        print(f"✅ Alert distributed for {cve_id}")
+        log_entry("✅", "ALERT DISTRIBUTED", cve_id, severity, product)
         return True
     except Exception as e:  # noqa: BLE001
         safe_msg = sanitize_log(e, secret_url=url)
-        print(f"❌ Notification runtime fail for {cve_id}: {safe_msg}", file=sys.stderr)
+        log_entry("❌", "NOTIFICATION FAIL", cve_id, severity, product, extra=safe_msg, err=True)
         return False
 
 
 def extract_cve_metrics(metrics: list[Any]) -> tuple[float | None, str]:
-    """Extracts base score float and formatted severity string from CNA metrics list."""
+    """Extracts base score float and formatted severity string from CNA metrics list.
+    Returns (base_score, severity). If the score cannot be parsed, severity is set to "UNKNOWN".
+    """
     base_score = None
-    severity = "Unknown"
+    severity = "UNKNOWN"
     for metric in metrics:
         if not isinstance(metric, dict):
             continue
@@ -221,8 +270,11 @@ def extract_cve_metrics(metrics: list[Any]) -> tuple[float | None, str]:
                         base_score = float(raw_score)
                     except (ValueError, TypeError):
                         base_score = None
-                    base_sev = metric[version].get("baseSeverity", "Unknown")
-                    severity = f"{base_sev} ({base_score if base_score is not None else 'N/A'})"
+                    base_sev = metric[version].get("baseSeverity", "UNKNOWN")
+                    if base_score is not None:
+                        severity = f"{base_sev} ({base_score})"
+                    else:
+                        severity = "UNKNOWN"
                     break
         if base_score is not None:
             break
@@ -315,16 +367,15 @@ def process_zip_data(
                 pub_date_raw = str(cve_meta.get("datePublished", "") or "")
                 if pub_date_raw:
                     pub_date = pub_date_raw.split("T")[0]
-                    if len(pub_date) == 10 and pub_date < min_pub_date_str:
-                        print(
-                            f"⏭️ Skipping {cve_id}: published date ({pub_date}) precedes diff date window (diff date: {zip_date_str})"
-                        )
-                        continue
+                else:
+                    pub_date = ""
 
+                # Extract product information before date check
                 cna = cve_record.get("containers", {}).get("cna", {})
                 affected_nodes = cna.get("affected", [])
                 descriptions = cna.get("descriptions", [])
                 metrics = cna.get("metrics", [])
+                base_score, severity = extract_cve_metrics(metrics)
 
                 desc_text = (
                     descriptions[0].get("value", "No description provided")
@@ -336,14 +387,31 @@ def process_zip_data(
                     affected_nodes, desc_text, monitored_sources
                 )
 
+                # If the CVE's published date is earlier than our look‑back window, log with program name
+                if pub_date and len(pub_date) == 10 and pub_date < min_pub_date_str:
+                    program_name = matched_product if matched else original_name
+                    log_entry(
+                        "⏭️",
+                        "SKIPPING",
+                        cve_id,
+                        severity,
+                        program_name,
+                        date_published=pub_date,
+                        extra="published date precedes diff date window",
+                    )
+                    continue
                 if matched:
                     if db.has_notified_today(cve_id, local_date_str):
-                        print(
-                            f"ℹ️ Skipping {cve_id} ({matched_product}): already notified today"
+                        log_entry(
+                            "ℹ️",
+                            "SKIPPING",
+                            cve_id,
+                            severity,
+                            matched_product,
+                            date_published=pub_date,
+                            extra="already notified today",
                         )
                         continue
-
-                    base_score, severity = extract_cve_metrics(metrics)
 
                     min_score = config.get("min_severity_score")
                     min_score_float = None
@@ -356,20 +424,32 @@ def process_zip_data(
                     if min_score_float is not None and (
                         base_score is None or base_score < min_score_float
                     ):
-                        print(
-                            f"⏭️ Skipping {cve_id} ({matched_product}): below minimum severity score (score={base_score}, min={min_score_float})"
+                        log_entry(
+                            "⏭️",
+                            "SKIPPING",
+                            cve_id,
+                            severity,
+                            matched_product,
+                            date_published=pub_date,
+                            extra="below minimum severity score",
                         )
                         continue
 
-                    print(f"🔔 Notifying about {cve_id} ({matched_product})")
+                    log_entry("🔔", "NOTIFYING", cve_id, severity, matched_product, date_published=pub_date, extra=f"Summary: {desc_text[:100]}...")
                     success = send_notification(
-                        config, cve_id, matched_product, severity, desc_text
+                        config, cve_id, matched_product, severity, desc_text, pub_date
                     )
                     if success:
                         db.record_notification(cve_id, local_date_str)
                 else:
-                    print(
-                        f"⏭️ Skipping {cve_id} ({original_name}): doesn't match any monitored products"
+                    log_entry(
+                        "⏭️",
+                        "SKIPPING",
+                        cve_id,
+                        severity,
+                        original_name,
+                        date_published=pub_date,
+                        extra="no monitored product match",
                     )
 
             except (
@@ -380,12 +460,16 @@ def process_zip_data(
                 zipfile.BadZipFile,
                 UnicodeDecodeError,
             ) as e:
-                safe_err = sanitize_log(e, secret_url=config.get("discord_webhook_url", ""))
-                print(f"⚠️ Parsing error on {cve_id}: {safe_err}")
+                safe_err = sanitize_log(
+                    e, secret_url=config.get("discord_webhook_url", "")
+                )
+                log_entry("⚠️", "PARSING ERROR", cve_id, extra=safe_err, err=True)
                 continue
             except Exception as e:  # noqa: BLE001
-                safe_err = sanitize_log(e, secret_url=config.get("discord_webhook_url", ""))
-                print(f"⚠️ Unexpected error on {cve_id}: {safe_err}")
+                safe_err = sanitize_log(
+                    e, secret_url=config.get("discord_webhook_url", "")
+                )
+                log_entry("⚠️", "UNEXPECTED ERROR", cve_id, extra=safe_err, err=True)
                 continue
 
 
@@ -407,7 +491,11 @@ def run_pipeline(config: dict[str, Any], db: Database):
     ]
 
     if not unprocessed:
-        print("🏁 Processing pipeline is complete and up to date.")
+        log_entry(
+            "🏁",
+            "PIPELINE COMPLETE",
+            extra="Processing pipeline is complete and up to date.",
+        )
         return
 
     encountered_cves: set[str] = set()
@@ -425,7 +513,7 @@ def run_pipeline(config: dict[str, Any], db: Database):
             failed_404.append((dt, release_id))
             continue
 
-        print(f"📦 Downloaded delta: {release_id}")
+        log_entry("📦", "DELTA DOWNLOADED", extra=release_id)
         process_zip_data(config, zip_bytes, db, date_str, encountered_cves)
         db.mark_diff_processed(release_id)
         last_success_time = dt
@@ -433,8 +521,10 @@ def run_pipeline(config: dict[str, Any], db: Database):
     # Mark 404s that occurred before a successful hour as permanently skipped
     for dt, release_id in failed_404:
         if last_success_time is not None and dt < last_success_time:
-            print(
-                f"⏭️ Skipping {release_id}: no delta available (404) and later hours have been published"
+            log_entry(
+                "⏭️",
+                "SKIPPING",
+                extra=f"{release_id}: no delta available (404) and later hours have been published",
             )
             db.mark_diff_processed(release_id)
 
