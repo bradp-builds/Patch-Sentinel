@@ -120,10 +120,10 @@ class Database:
                 (release_id,),
             )
 
-    def has_notified_today(self, cve_id: str, local_date: str) -> bool:
+    def has_already_notified(self, cve_id: str) -> bool:
         cursor = self._conn.execute(
-            "SELECT 1 FROM sent_notifications WHERE cve_id = ? AND local_date = ?",
-            (cve_id, local_date),
+            "SELECT 1 FROM sent_notifications WHERE cve_id = ?",
+            (cve_id,),
         )
         return cursor.fetchone() is not None
 
@@ -347,7 +347,7 @@ def process_zip_data(
 
         try:
             zip_dt = date.fromisoformat(zip_date_str)
-            min_pub_date_str = (zip_dt - timedelta(days=1)).isoformat()
+            min_pub_date_str = (zip_dt - timedelta(days=3)).isoformat()
         except ValueError:
             min_pub_date_str = zip_date_str
 
@@ -401,7 +401,7 @@ def process_zip_data(
                     )
                     continue
                 if matched:
-                    if db.has_notified_today(cve_id, local_date_str):
+                    if db.has_already_notified(cve_id):
                         log_entry(
                             "ℹ️",
                             "SKIPPING",
@@ -409,7 +409,7 @@ def process_zip_data(
                             severity,
                             matched_product,
                             date_published=pub_date,
-                            extra="already notified today",
+                            extra="already notified",
                         )
                         continue
 
