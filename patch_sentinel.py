@@ -230,6 +230,7 @@ def send_notification(
                 "fields": [
                     {"name": "Impacted Software", "value": product, "inline": True},
                     {"name": "Severity", "value": severity, "inline": True},
+                    {"name": "Published Date", "value": date_published or "Unknown", "inline": True},
                     {"name": "Description", "value": desc_field},
                 ],
             }
