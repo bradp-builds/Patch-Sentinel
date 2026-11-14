@@ -4,3 +4,9 @@ config.yaml
 .cache
 __pycache__
 local_db.sqlite
+.venv/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/

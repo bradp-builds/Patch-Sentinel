@@ -2,8 +2,12 @@ name: Patch Sentinel
 
 on:
   schedule:
-    - cron: '0 */12 * * *' # Every 12 hours
+    - cron: '0 * * * *' # Every hour
   workflow_dispatch:
+
+concurrency:
+  group: patch-sentinel-scan
+  cancel-in-progress: false
 
 jobs:
   scan:
@@ -15,13 +19,14 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      - name: Cache & Restore SQLite State Database
-        uses: actions/cache@v6
+      - name: Restore SQLite state
+        id: state
+        uses: actions/cache/restore@v6
         with:
           path: local_db.sqlite
-          key: patch-sentinel-db-${{ github.run_id }}
+          key: patch-sentinel-db-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             patch-sentinel-db-
 
@@ -34,3 +39,9 @@ jobs:
           TIMEZONE: ${{ vars.TIMEZONE }}
           TEST_MODE: ${{ vars.TEST_MODE }}
 
+      - name: Save SQLite state even after a partial failure
+        if: ${{ always() && steps.state.outcome == 'success' && hashFiles('local_db.sqlite') != '' && vars.TEST_MODE != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: local_db.sqlite
+          key: patch-sentinel-db-${{ github.run_id }}-${{ github.run_attempt }}

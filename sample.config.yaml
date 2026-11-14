@@ -6,10 +6,10 @@
 #
 #   DISCORD_WEBHOOK_URL      — Discord webhook URL (required)
 #   MIN_SEVERITY_SCORE       — number 0–10 (optional, no default)
-#   MONITORED_SOURCES        — newline- or comma-separated glob patterns (optional)
+#   MONITORED_SOURCES        — newline- or comma-separated glob patterns (required)
 #   TIMEZONE                 — e.g. "America/Detroit" (optional, default UTC)
 
-# Timezone
+# Display timezone for publication timestamps; filtering always uses elapsed UTC time.
 timezone: "America/Detroit"
 
 # Discord Webhook URL for alerts
@@ -20,7 +20,7 @@ discord_webhook_url: "https://discord.com/api/webhooks/YOUR_DISCORD_WEBHOOK_HERE
 # If a CVE has no CVSS score, it is skipped when a threshold is set.
 min_severity_score: 6.0
 
-# Upstream Packages to Monitor
+# Upstream Packages to Monitor (at least one pattern is required)
 # Supports standard wildcard globbing (e.g., nginx*)
 monitored_sources:
   - "Linux"
