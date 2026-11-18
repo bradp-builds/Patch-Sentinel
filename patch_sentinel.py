@@ -59,6 +59,10 @@ class RecordError(ValueError):
     """An upstream CVE record cannot be interpreted safely."""
 
 
+class RejectedCve(Exception):
+    """The issuing authority withdrew this CVE ID."""
+
+
 class FetchError(Exception):
     """A download failed and must remain eligible for a later run."""
 
@@ -238,7 +242,7 @@ def parse_timestamp(value: object) -> datetime:
 
 def extract_metrics(metrics: list[Any]) -> tuple[float | None, str]:
     """Prefer the newest supported CVSS version with a valid score."""
-    for version in ("cvssV4_0", "cvssV3_1", "cvssV3_0"):
+    for version in ("cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"):
         for metric in metrics:
             values = metric.get(version) if isinstance(metric, dict) else None
             if not isinstance(values, dict):
@@ -248,12 +252,27 @@ def extract_metrics(metrics: list[Any]) -> tuple[float | None, str]:
                 if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
                     continue
                 score = float(raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if math.isfinite(score) and 0 <= score <= 10:
                 severity = values.get("baseSeverity", "UNKNOWN")
                 return score, f"{severity} ({score:g})"
     return None, "UNKNOWN"
+
+
+def cisa_metrics(containers: dict[str, Any]) -> list[Any]:
+    metrics: list[Any] = []
+    providers = containers.get("adp")
+    if isinstance(providers, list):
+        for provider in providers:
+            if not isinstance(provider, dict):
+                continue
+            metadata = provider.get("providerMetadata")
+            if isinstance(metadata, dict) and metadata.get("shortName") == "CISA-ADP":
+                entries = provider.get("metrics")
+                if isinstance(entries, list):
+                    metrics.extend(entries)
+    return metrics
 
 
 def parse_cve(cve_id: str, raw: object) -> Cve:
@@ -266,6 +285,8 @@ def parse_cve(cve_id: str, raw: object) -> Cve:
         raise RecordError("missing metadata or containers")
     if metadata.get("cveId") != cve_id or not CVE_ID.fullmatch(cve_id):
         raise RecordError("record ID does not match archive filename")
+    if metadata.get("state") == "REJECTED":
+        raise RejectedCve(cve_id)
     cna = containers.get("cna")
     if not isinstance(cna, dict):
         raise RecordError("missing CNA container")
@@ -290,6 +311,8 @@ def parse_cve(cve_id: str, raw: object) -> Cve:
     if description is None:
         description = texts[0]["value"] if texts else "No description provided"
     score, severity = extract_metrics(metrics)
+    if score is None:
+        score, severity = extract_metrics(cisa_metrics(containers))
     return Cve(
         cve_id,
         parse_timestamp(metadata.get("datePublished")),
@@ -610,6 +633,7 @@ class RunSummary:
     missing: int = 0
     retired: int = 0
     invalid_records: int = 0
+    rejected: int = 0
     sent: int = 0
     pending: int = 0
     expired: int = 0
@@ -639,6 +663,10 @@ def process_zip_data(
                     raise zipfile.BadZipFile("encrypted archive entry")
                 raw = json.loads(archive.read(entry))
                 cve = parse_cve(cve_id, raw)
+            except RejectedCve:
+                summary.rejected += 1
+                db.remove_pending(cve_id)
+                continue
             except (RecordError, ValueError, UnicodeDecodeError) as exc:
                 summary.invalid_records += 1
                 summary.errors += 1
@@ -680,6 +708,10 @@ def deliver_pending(config: Config, db: Database, now: datetime, summary: RunSum
             expires = datetime.fromisoformat(queued_at) + DELIVERY_TTL
             if expires.tzinfo is None:
                 raise RecordError("queue timestamp must be timezone aware")
+        except RejectedCve:
+            summary.rejected += 1
+            db.remove_pending(cve_id)
+            continue
         except (RecordError, ValueError, OverflowError) as exc:
             summary.errors += 1
             logger.error("Discarding invalid pending record | %s | %s", cve_id, exc)
@@ -789,10 +821,12 @@ def run_pipeline(config: Config, db: Database, *, now: datetime | None = None) -
     delivery_now = now + timedelta(seconds=time.monotonic() - started)
     deliver_pending(config, db, delivery_now, summary)
     logger.info(
-        "Run complete | downloaded=%d missing=%d retired=%d invalid=%d sent=%d pending=%d expired=%d errors=%d",
+        "Run complete | downloaded=%d missing=%d retired=%d rejected=%d invalid=%d "
+        "sent=%d pending=%d expired=%d errors=%d",
         summary.downloaded,
         summary.missing,
         summary.retired,
+        summary.rejected,
         summary.invalid_records,
         summary.sent,
         summary.pending,

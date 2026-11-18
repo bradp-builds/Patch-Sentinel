@@ -1,6 +1,7 @@
 """Regression tests for pipeline."""
 
 import io
+import json
 import unittest
 import zipfile
 from datetime import UTC, timedelta, timezone
@@ -103,6 +104,26 @@ class PipelineTests(unittest.TestCase):
         app.process_zip_data(CONFIG, archive(None), self.db, NOW, summary)
         self.assertEqual(len(self.db.pending()), 1)
         self.assertEqual(summary.invalid_records, 1)
+
+    def test_rejection_cancels_pending_and_allows_other_alerts(self):
+        self.db.queue(CVE, record(), NOW)
+        rejected = {
+            "cveMetadata": {"cveId": CVE, "state": "REJECTED"},
+            "containers": {"cna": {"rejectedReasons": []}},
+        }
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as output:
+            output.writestr(f"{CVE}.json", json.dumps(rejected))
+            output.writestr(f"{OTHER_CVE}.json", json.dumps(record(cve_id=OTHER_CVE)))
+        summary = app.RunSummary()
+        app.process_zip_data(CONFIG, data.getvalue(), self.db, NOW, summary)
+        with patch.object(app, "send_notification", return_value=app.DeliveryResult(True)) as send:
+            app.deliver_pending(CONFIG, self.db, NOW, summary)
+        send.assert_called_once()
+        self.assertEqual(send.call_args.args[1].cve_id, OTHER_CVE)
+        self.assertEqual(summary.rejected, 1)
+        self.assertEqual(summary.invalid_records, 0)
+        self.assertEqual(summary.exit_code, 0)
 
     def test_expired_pending_is_removed_without_delivery(self):
         self.db.queue(CVE, record(age=25), NOW - timedelta(hours=24))

@@ -55,6 +55,36 @@ class ParsingTests(unittest.TestCase):
         metrics = [{"cvssV4_0": {"baseScore": "bad"}, "cvssV3_1": {"baseScore": 8}}]
         self.assertEqual(app.extract_metrics(metrics)[0], 8)
 
+    def test_versions_take_precedence_over_list_order_and_score_value(self):
+        metrics = [
+            {"cvssV2_0": {"baseScore": 9}},
+            {"cvssV3_0": {"baseScore": 8}},
+            {"cvssV3_1": {"baseScore": 7}},
+            {"cvssV4_0": {"baseScore": 6}},
+        ]
+        for size, expected in enumerate((9, 8, 7, 6), start=1):
+            self.assertEqual(app.extract_metrics(metrics[:size])[0], expected)
+
+    def test_cisa_fallback_only_after_authority_scores_are_exhausted(self):
+        raw = record()
+        raw["containers"]["adp"] = [
+            {
+                "providerMetadata": {"shortName": "Other"},
+                "metrics": [{"cvssV4_0": {"baseScore": 9}}],
+            },
+            {
+                "providerMetadata": {"shortName": "CISA-ADP"},
+                "metrics": [{"cvssV3_1": {"baseScore": 8}}],
+            },
+        ]
+        for value, expected in ((0, 0), (4, 4), ("invalid", 8)):
+            raw["containers"]["cna"]["metrics"] = [{"cvssV2_0": {"baseScore": value}}]
+            cve = app.parse_cve(CVE, raw)
+            self.assertEqual(cve.score, expected)
+            self.assertEqual(
+                app.matching_product(cve, CONFIG, NOW), "Linux" if expected == 8 else None
+            )
+
     def test_product_matching_and_description_fallback(self):
         cve = app.parse_cve(CVE, record())
         self.assertEqual(
